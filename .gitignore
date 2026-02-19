@@ -1,0 +1,19 @@
+# 환경변수 (API 키 등 비밀 정보)
+.env
+
+# Node.js 의존성
+node_modules/
+
+# 생성된 데이터 파일
+output/
+blog_output/
+collected_ids.json
+
+# 로그 파일
+*.log
+auto_log.txt
+launchd_err.log
+launchd_out.log
+
+# macOS
+.DS_Store
