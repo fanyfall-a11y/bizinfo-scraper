@@ -1,0 +1,48 @@
+name: 비즈인포 일일 자동 수집 및 메일 발송
+
+on:
+  schedule:
+    # 매일 한국시간 오전 9시 (UTC 00:00)
+    - cron: '0 0 * * 1-5'
+  workflow_dispatch: # 수동 실행도 가능
+
+jobs:
+  collect-and-send:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 한글 폰트 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Chrome 설치 (Puppeteer용)
+        run: |
+          sudo apt-get install -y chromium-browser
+
+      - name: 의존성 설치
+        run: npm install
+
+      - name: nodemailer 설치
+        run: npm install nodemailer
+
+      - name: 일일 수집 + 메일 발송 실행
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TO_EMAIL: nagairams1@gmail.com
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
+        run: node run-daily.js
+
+      - name: 로그 확인
+        if: always()
+        run: cat auto_log.txt || echo "로그 없음"
