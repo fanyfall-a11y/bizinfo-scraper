@@ -43,6 +43,15 @@ jobs:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
         run: node run-daily.js
 
+      - name: 수집 기록 저장 (중복 방지용)
+        if: always()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add collected_ids.json || true
+          git diff --staged --quiet || git commit -m "자동 수집 기록 업데이트 $(date +'%Y-%m-%d')"
+          git push || true
+
       - name: 로그 확인
         if: always()
         run: cat auto_log.txt || echo "로그 없음"
