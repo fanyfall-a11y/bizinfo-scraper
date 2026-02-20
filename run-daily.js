@@ -10,6 +10,27 @@ const DB_FILE = path.join(__dirname, 'collected_ids.json');
 const LOG_FILE = path.join(__dirname, 'auto_log.txt');
 const TO_EMAIL = process.env.TO_EMAIL || 'nagairams1@gmail.com';
 
+// Gemini 호출 카운터
+const geminiStats = {
+  total: 0,           // 전체 호출 수
+  callTimes: [],      // 호출 시각 기록 (RPM 계산용)
+};
+
+function countGeminiCall(label) {
+  geminiStats.total++;
+  geminiStats.callTimes.push({ time: Date.now(), label });
+}
+
+function getGeminiStats() {
+  const now = Date.now();
+  // 최근 1분 이내 호출 수
+  const recentCalls = geminiStats.callTimes.filter(c => now - c.time < 60000);
+  return {
+    total: geminiStats.total,
+    rpm: recentCalls.length,
+  };
+}
+
 
 function log(msg) {
   const line = `[${new Date().toLocaleString('ko-KR')}] ${msg}`;
@@ -178,7 +199,12 @@ async function geminiCallWithRetry(fn, label) {
   const delays = [60000, 120000, 600000]; // 60초 → 120초 → 10분
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
-      return await fn();
+      const result = await fn();
+      // 호출 성공 시 카운트 + 현재 통계 로그
+      countGeminiCall(label);
+      const stats = getGeminiStats();
+      log(`  📊 Gemini 호출 [${label}] 완료 | 전체 ${stats.total}회 | 현재 분당 ${stats.rpm}회`);
+      return result;
     } catch (e) {
       const is429 = e.message && (e.message.includes('429') || e.message.includes('quota') || e.message.includes('Too Many'));
       if (is429 && attempt < delays.length) {
@@ -965,6 +991,14 @@ async function main() {
       text: emailBody,
       attachments: allAttachments.slice(0, 20),
     });
+
+    // 최종 Gemini 호출 통계
+    const finalStats = getGeminiStats();
+    log(`📊 Gemini 최종 통계 | 전체 호출: ${finalStats.total}회 | 마지막 1분 호출: ${finalStats.rpm}회`);
+    emailBody += `\n${'─'.repeat(50)}\n`;
+    emailBody += `📊 Gemini API 사용 통계\n`;
+    emailBody += `• 이번 작업 전체 호출 수: ${finalStats.total}회\n`;
+    emailBody += `• 공고 1건당 평균 호출: ${processedCount > 0 ? (finalStats.total / processedCount).toFixed(1) : 0}회\n`;
 
     log(`✅ 완료! 총 ${results.length}건 → ${TO_EMAIL} 전송됨`);
     log(`📁 저장위치: ${baseDir}`);
