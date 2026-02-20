@@ -10,8 +10,6 @@ const DB_FILE = path.join(__dirname, 'collected_ids.json');
 const LOG_FILE = path.join(__dirname, 'auto_log.txt');
 const TO_EMAIL = process.env.TO_EMAIL || 'nagairams1@gmail.com';
 
-// 제외할 키워드 (K-Startup 등 불필요한 공고)
-const EXCLUDE_KEYWORDS = ['K-Startup', 'k-startup', 'K스타트업'];
 
 function log(msg) {
   const line = `[${new Date().toLocaleString('ko-KR')}] ${msg}`;
@@ -87,11 +85,6 @@ async function getNewItems(page, maxPages = 5) {
 
     let newCount = 0;
     for (const item of items) {
-      // 제외 키워드 필터
-      if (EXCLUDE_KEYWORDS.some(kw => item.title.includes(kw))) {
-        log(`  ⏭️ 제외: ${item.title}`);
-        continue;
-      }
       const id = extractId(item.url);
       if (id && db[id]) { hitExisting = true; continue; }
       newItems.push(item);
