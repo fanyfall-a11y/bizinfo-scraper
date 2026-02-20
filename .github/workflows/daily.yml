@@ -2,8 +2,8 @@ name: 비즈인포 일일 자동 수집 및 메일 발송
 
 on:
   schedule:
-    # 매일 한국시간 새벽 2시 (UTC 17:00 전날)
-    - cron: '0 17 * * 0-4'
+    # 매일 한국시간 새벽 2시 (UTC 17:00)
+    - cron: '0 17 * * *'
   workflow_dispatch: # 수동 실행도 가능
 
 jobs:
