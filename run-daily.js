@@ -149,6 +149,9 @@ async function scrapeDetail(page, url) {
       const dateEl = document.querySelector('.date, .reg_date, .write_date');
       const regDate = dateEl?.innerText?.replace(/[^0-9\.\-]/g, '').trim() || '';
 
+      // HWP 뷰어 iframe URL 추출
+      const iframeSrc = document.querySelector('iframe')?.src || '';
+
       return {
         title,
         details,
@@ -160,7 +163,8 @@ async function scrapeDetail(page, url) {
         contact: contact?.value || '',
         organ: organ?.value || '',
         deadline,
-        regDate
+        regDate,
+        iframeSrc
       };
     });
   } catch {
@@ -169,8 +173,104 @@ async function scrapeDetail(page, url) {
   }
 }
 
+// 429 오류 시 자동 재시도 래퍼 (1차 60초, 2차 120초, 3차 포기)
+async function geminiCallWithRetry(fn, label) {
+  const delays = [60000, 120000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const is429 = e.message && (e.message.includes('429') || e.message.includes('quota') || e.message.includes('Too Many'));
+      if (is429 && attempt < delays.length) {
+        const wait = delays[attempt];
+        log(`  ⚠️ [${label}] Gemini 429 오류 → ${wait / 1000}초 대기 후 재시도 (${attempt + 1}/${delays.length})`);
+        await new Promise(r => setTimeout(r, wait));
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
+// HWP 뷰어 스크린샷 전체 캡처 후 Gemini Vision으로 내용 추출
+async function extractHwpContent(iframeSrc, title, browser) {
+  try {
+    log('  📄 HWP 뷰어 스크린샷 캡처 중...');
+    const viewerPage = await browser.newPage();
+    await viewerPage.setViewport({ width: 1200, height: 1400 });
+    await viewerPage.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
+    await viewerPage.goto(iframeSrc, { waitUntil: 'networkidle2', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 5000));
+
+    // 총 페이지 수 파악 (최대 6페이지까지만)
+    const totalPages = await viewerPage.evaluate(() => {
+      const text = document.body.innerText;
+      const m = text.match(/\/\s*(\d+)/);
+      return m ? Math.min(parseInt(m[1]), 6) : 3;
+    });
+    log(`  📄 총 ${totalPages}페이지 캡처 시작`);
+
+    const fs = require('fs');
+    const screenshots = [];
+
+    for (let p = 1; p <= totalPages; p++) {
+      if (p > 1) {
+        // 다음 페이지로 이동
+        await viewerPage.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button, a'));
+          const nextBtn = btns.find(b =>
+            b.title?.includes('다음') || b.className?.includes('next') ||
+            b.getAttribute('aria-label')?.includes('next') || b.innerText?.trim() === '>'
+          );
+          if (nextBtn) nextBtn.click();
+        });
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      const imgPath = `/tmp/hwp_page_${p}.png`;
+      await viewerPage.screenshot({ path: imgPath, fullPage: false });
+      screenshots.push(imgPath);
+      log(`  📄 페이지 ${p}/${totalPages} 캡처 완료`);
+    }
+    await viewerPage.close();
+
+    // 스크린샷 전체를 Gemini Vision에 한번에 전달 (1회 호출)
+    log('  🤖 Gemini Vision으로 HWP 내용 추출 중...');
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const parts = [{
+      text: `다음은 지원사업 공고문 이미지(${totalPages}페이지)입니다. 아래 항목만 정확하게 추출해주세요. 이미지에 없는 내용은 절대 추가하지 마세요.\n\n1. 지원대상(신청자격): 누가 신청할 수 있는지\n2. 지원내용: 지원금액, 지원규모, 지원항목\n3. 신청방법: 어떻게 신청하는지\n\n각 항목을 불릿포인트(•)로 정리해서 아래 형식으로 출력:\n---지원대상---\n(내용)\n---지원내용---\n(내용)\n---신청방법---\n(내용)`
+    }];
+
+    for (const imgPath of screenshots) {
+      const imgData = fs.readFileSync(imgPath);
+      parts.push({ inlineData: { mimeType: 'image/png', data: imgData.toString('base64') } });
+    }
+
+    const hwpResult = await geminiCallWithRetry(
+      () => model.generateContent(parts),
+      'HWP Vision'
+    );
+    const hwpText = hwpResult.response.text().trim();
+
+    const targetMatch = hwpText.match(/---지원대상---([\s\S]*?)---지원내용---/);
+    const amountMatch = hwpText.match(/---지원내용---([\s\S]*?)---신청방법---/);
+    const methodMatch = hwpText.match(/---신청방법---([\s\S]*?)$/);
+
+    log('  ✅ HWP 내용 추출 완료');
+    return {
+      hwpTarget: targetMatch ? targetMatch[1].trim() : '',
+      hwpAmount: amountMatch ? amountMatch[1].trim() : '',
+      hwpMethod: methodMatch ? methodMatch[1].trim() : '',
+    };
+  } catch (e) {
+    log(`  ⚠️ HWP 추출 실패: ${e.message}`);
+    return { hwpTarget: '', hwpAmount: '', hwpMethod: '' };
+  }
+}
+
 // Gemini로 멘트 + 신청자격 + 지원내용 + 블로그 3종 생성
-async function generateMent(item) {
+async function generateMent(item, browser) {
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
@@ -180,10 +280,30 @@ async function generateMent(item) {
     const period = item.period || item.deadline || '미상';
     const contact = item.contact || '공고 원문 확인';
 
+    // HWP 뷰어가 있으면 추출 (없으면 스킵)
+    let hwpTarget = '', hwpAmount = '', hwpMethod = '';
+    if (item.iframeSrc && browser) {
+      const hwp = await extractHwpContent(item.iframeSrc, title, browser);
+      hwpTarget = hwp.hwpTarget;
+      hwpAmount = hwp.hwpAmount;
+      hwpMethod = hwp.hwpMethod;
+      // HWP 추출 후 20초 딜레이 (RPM 보호)
+      log('  ⏳ HWP 추출 후 20초 대기 중...');
+      await new Promise(r => setTimeout(r, 20000));
+    }
+
+    // HWP에서 추출한 내용 + 사업개요 합쳐서 Gemini에 전달
+    const enrichedOverview = [
+      overview.slice(0, 600),
+      hwpTarget ? `[지원대상] ${hwpTarget.slice(0, 400)}` : '',
+      hwpAmount ? `[지원내용] ${hwpAmount.slice(0, 400)}` : '',
+      hwpMethod ? `[신청방법] ${hwpMethod.slice(0, 200)}` : '',
+    ].filter(Boolean).join('\n\n');
+
     const prompt = `다음 지원사업 공고를 분석해서 아래 형식으로 정리해줘. 반드시 구분자(---)를 정확히 사용해.
 
 [공고명] ${title}
-[사업개요] ${overview.slice(0, 800)}
+[사업내용] ${enrichedOverview}
 [신청기간] ${period}
 [문의처] ${contact}
 
@@ -236,10 +356,14 @@ async function generateMent(item) {
 제목:
 본문:`;
 
-    const result = await model.generateContent(prompt);
+    // 1차 호출: 초안 생성
+    const result = await geminiCallWithRetry(
+      () => model.generateContent(prompt),
+      '초안 생성'
+    );
     const firstDraft = result.response.text().trim();
 
-    // 1차 → 2차 사이 20초 딜레이 (RPM 보호: 1분에 최대 2~3회 호출)
+    // 1차 → 2차 사이 20초 딜레이
     log('  ⏳ 검수 전 20초 대기 중...');
     await new Promise(r => setTimeout(r, 20000));
 
@@ -255,14 +379,18 @@ async function generateMent(item) {
 [공고 원문 핵심]
 공고명: ${title}
 신청기간: ${period}
-사업개요: ${overview.slice(0, 400)}
+사업내용: ${enrichedOverview.slice(0, 600)}
 
 [초안]
 ${firstDraft}
 
 ===검수 후 최종 출력 (초안과 동일한 구분자 형식 유지)===`;
 
-    const reviewResult = await model.generateContent(reviewPrompt);
+    // 2차 호출: 검수
+    const reviewResult = await geminiCallWithRetry(
+      () => model.generateContent(reviewPrompt),
+      '검수'
+    );
     const text = reviewResult.response.text().trim();
 
     // 파싱
@@ -275,8 +403,8 @@ ${firstDraft}
 
     return {
       ment: mentMatch ? mentMatch[1].trim() : `📢 ${item.title.slice(0, 40)}`,
-      target: targetMatch ? targetMatch[1].trim() : '공고 원문을 확인해주세요.',
-      amount: amountMatch ? amountMatch[1].trim() : item.amount || '공고 원문을 확인해주세요.',
+      target: targetMatch ? targetMatch[1].trim() : hwpTarget || '공고 원문을 확인해주세요.',
+      amount: amountMatch ? amountMatch[1].trim() : hwpAmount || item.amount || '공고 원문을 확인해주세요.',
       naver: naverMatch ? naverMatch[1].trim() : '네이버 블로그 글 생성 실패. 공고 원문을 확인해주세요.',
       tistory: tistoryMatch ? tistoryMatch[1].trim() : '티스토리 글 생성 실패. 공고 원문을 확인해주세요.',
       blogspot: blogspotMatch ? blogspotMatch[1].trim() : '블로그스팟 글 생성 실패. 공고 원문을 확인해주세요.',
@@ -710,8 +838,8 @@ async function main() {
       // Gemini 딜레이 (공고 사이 10초 + 검수 내부 20초 = 공고당 총 ~30초)
       if (i > 0) await new Promise(r => setTimeout(r, 10000));
 
-      // Gemini로 멘트 + 신청자격 + 지원내용 추출
-      const geminiResult = await generateMent(item);
+      // Gemini로 멘트 + 신청자격 + 지원내용 추출 (browser 전달 → HWP Vision 활용)
+      const geminiResult = await generateMent(item, browser);
 
       // Gemini 결과를 item에 반영
       item.aiMent = geminiResult.ment;
