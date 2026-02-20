@@ -147,14 +147,21 @@ async function generateMent(item) {
     const amount = item.details.find(d => d.label.includes('지원금액') || d.label.includes('지원규모'));
 
     const prompt = `다음 지원사업 공고를 SNS 뉴스카드용 멘트로 작성해줘.
-- 3줄 이내로 짧고 임팩트 있게
-- 이모지 포함
-- 핵심 혜택 강조
+- 반드시 3줄로 작성
+- 각 줄마다 이모지 1개 포함
+- 공고명에서 핵심 키워드(지역, 대상, 혜택)를 뽑아서 구체적으로 작성
+- "지원사업 공고가 등록되었습니다" 같은 뻔한 표현 절대 사용 금지
+- 누가 신청할 수 있는지, 어떤 혜택인지 임팩트 있게 표현
 
 [공고명] ${item.title}
-[사업개요] ${overview?.value || '없음'}
-[지원대상] ${target?.value || '없음'}
-[지원금액] ${amount?.value || '없음'}`;
+[사업개요] ${overview?.value || '공고명 참고'}
+[지원대상] ${target?.value || '공고명 참고'}
+[지원금액] ${amount?.value || '공고명 참고'}
+
+예시 형식:
+🎯 [지역/대상] 기업이라면 주목!
+💰 [핵심 혜택 내용]
+📌 지금 바로 신청하세요!`;
 
     const result = await model.generateContent(prompt);
     return result.response.text();
@@ -213,9 +220,8 @@ async function generateCardImage(item, ment, outputPath, browser) {
 <body>
   <div class="tag">📋 지원사업 공고</div>
   <div class="title">${item.title.slice(0, 60)}${item.title.length > 60 ? '...' : ''}</div>
-  <div class="divider"></div>
   <div class="ment">${ment.replace(/\n/g, '<br>')}</div>
-  <div class="footer">비즈인포 · ${new Date().toLocaleDateString('ko-KR')}</div>
+  <div class="footer">정책캐처 · ${new Date().toLocaleDateString('ko-KR')}</div>
 </body>
 </html>`;
 
