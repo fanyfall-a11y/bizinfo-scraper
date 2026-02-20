@@ -10,6 +10,9 @@ const DB_FILE = path.join(__dirname, 'collected_ids.json');
 const LOG_FILE = path.join(__dirname, 'auto_log.txt');
 const TO_EMAIL = process.env.TO_EMAIL || 'nagairams1@gmail.com';
 
+// 제외할 키워드 (K-Startup 등 불필요한 공고)
+const EXCLUDE_KEYWORDS = ['K-Startup', 'k-startup', 'K스타트업'];
+
 function log(msg) {
   const line = `[${new Date().toLocaleString('ko-KR')}] ${msg}`;
   console.log(line);
@@ -33,7 +36,12 @@ function extractId(url) {
 }
 
 function sanitize(name) {
-  return name.replace(/[\/\\:*?"<>|\n\r]/g, '_').trim().slice(0, 60);
+  return name
+    .replace(/[\/\\:*?"<>|\n\r+()（）【】\[\]「」『』〔〕·•]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
 }
 
 function extractRegion(title, details) {
@@ -79,6 +87,11 @@ async function getNewItems(page, maxPages = 5) {
 
     let newCount = 0;
     for (const item of items) {
+      // 제외 키워드 필터
+      if (EXCLUDE_KEYWORDS.some(kw => item.title.includes(kw))) {
+        log(`  ⏭️ 제외: ${item.title}`);
+        continue;
+      }
       const id = extractId(item.url);
       if (id && db[id]) { hitExisting = true; continue; }
       newItems.push(item);
@@ -163,28 +176,127 @@ async function scrapeDetail(page, url) {
   }
 }
 
-// Gemini로 핵심 멘트 생성
+// Gemini로 멘트 + 신청자격 + 지원내용 + 블로그 3종 생성
 async function generateMent(item) {
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    const prompt = `다음 지원사업 공고를 SNS 카드뉴스 썸네일용 한 줄 핵심 문구로 작성해줘.
-- 반드시 1~2줄
-- 이모지 1~2개 포함
-- "지원사업 공고가 등록되었습니다" 같은 뻔한 표현 절대 금지
-- 누가 받을 수 있는지, 얼마나 받는지 핵심만 임팩트 있게
-- 예: "💰 울산 중소기업이라면! 경영안정자금 최대 5천만원 지원"
+    const overview = item.overview || '';
+    const title = item.title;
+    const period = item.period || item.deadline || '미상';
+    const contact = item.contact || '공고 원문 확인';
 
-[공고명] ${item.title}
-[사업개요] ${item.overview || '공고명 참고'}
-[지원대상] ${item.target || '공고명 참고'}
-[지원금액] ${item.amount || '공고명 참고'}`;
+    const prompt = `다음 지원사업 공고를 분석해서 아래 형식으로 정리해줘. 반드시 구분자(---)를 정확히 사용해.
+
+[공고명] ${title}
+[사업개요] ${overview.slice(0, 800)}
+[신청기간] ${period}
+[문의처] ${contact}
+
+===출력형식 시작===
+
+---썸네일멘트---
+(SNS 카드뉴스용. 1~2줄. 이모지 1~2개. 누가/얼마/어떤혜택인지 핵심만. "지원사업 공고가 등록되었습니다" 같은 뻔한 표현 절대 금지)
+
+---신청자격---
+(신청 가능한 대상 조건만. 불릿포인트(•)로 3~5줄. 정보 없으면 "공고 원문을 확인해주세요.")
+
+---지원내용---
+(지원금액, 지원내용만. 불릿포인트(•)로 3~5줄. 정보 없으면 "공고 원문을 확인해주세요.")
+
+---네이버블로그---
+[작성 지침]
+- 1500~2000자
+- 친근하지만 전문적인 경어체
+- 검색 상위노출용 키워드 자연스럽게 포함
+- 소제목(##) 사용
+- 마지막에 "공감과 댓글은 큰 힘이 됩니다 😊" 추가
+- 복사 붙여넣기 바로 가능하게 완성형으로 작성
+- AI 말투 절대 금지: "안녕하세요!", "오늘은 ~에 대해 알아보겠습니다", "~하시면 됩니다!" 같은 표현 사용 금지
+- 실제 블로거가 직접 쓴 것처럼 자연스럽게
+- 키워드: ${title.replace(/\[[가-힣]+\]/g, '').trim().split(' ').slice(0, 3).join(', ')}
+제목:
+본문:
+
+---티스토리---
+[작성 지침]
+- 1000~1500자
+- 정보성 경어체, 담백하고 군더더기 없는 문장
+- SEO 최적화, 소제목(##) 사용
+- 핵심정보 위주로 간결하게
+- AI 말투 절대 금지: 과도한 이모지, 감탄사, 정형화된 인사말 사용 금지
+- 실제 전문 블로거가 쓴 것처럼 자연스럽게
+- 복사 붙여넣기 바로 가능하게 완성형으로 작성
+제목:
+본문:
+
+---블로그스팟---
+[작성 지침]
+- 800~1200자
+- 간결하고 핵심만 담은 경어체
+- 핵심정보만 단락 구분
+- 해시태그 5개 포함
+- AI 말투 절대 금지: 뻔한 도입부, 과도한 이모지 사용 금지
+- 자연스럽고 담백하게
+- 복사 붙여넣기 바로 가능하게 완성형으로 작성
+제목:
+본문:`;
 
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const firstDraft = result.response.text().trim();
+
+    // 1차 검수: 생성된 블로그 글에서 문제점 체크 후 보정
+    await new Promise(r => setTimeout(r, 20000)); // 검수 전 20초 딜레이
+
+    const reviewPrompt = `다음은 지원사업 공고를 기반으로 작성된 블로그 글 초안입니다.
+아래 검수 기준에 맞게 문제가 있는 부분만 수정해서 최종본을 출력해줘.
+
+[검수 기준]
+1. AI 말투 제거: "안녕하세요!", "오늘은 ~에 대해 알아보겠습니다", "~하시면 됩니다!" 등 → 자연스러운 문장으로 교체
+2. 할루시네이션 방지: 공고 원문에 없는 수치나 정보가 추가되어 있으면 삭제하고 "공고 원문을 확인해주세요"로 대체
+3. 중복 콘텐츠 방지: 네이버/티스토리/블로그스팟 글이 너무 비슷하면 도입부와 마무리 문장을 다르게 수정
+4. 공고명, 신청기간, 지원내용은 원문 그대로 유지 (변경 금지)
+
+[공고 원문 핵심]
+공고명: ${title}
+신청기간: ${period}
+사업개요: ${overview.slice(0, 400)}
+
+[초안]
+${firstDraft}
+
+===검수 후 최종 출력 (초안과 동일한 구분자 형식 유지)===`;
+
+    const reviewResult = await model.generateContent(reviewPrompt);
+    const text = reviewResult.response.text().trim();
+
+    // 파싱
+    const mentMatch = text.match(/---썸네일멘트---([\s\S]*?)---신청자격---/);
+    const targetMatch = text.match(/---신청자격---([\s\S]*?)---지원내용---/);
+    const amountMatch = text.match(/---지원내용---([\s\S]*?)---네이버블로그---/);
+    const naverMatch = text.match(/---네이버블로그---([\s\S]*?)---티스토리---/);
+    const tistoryMatch = text.match(/---티스토리---([\s\S]*?)---블로그스팟---/);
+    const blogspotMatch = text.match(/---블로그스팟---([\s\S]*?)$/);
+
+    return {
+      ment: mentMatch ? mentMatch[1].trim() : `📢 ${item.title.slice(0, 40)}`,
+      target: targetMatch ? targetMatch[1].trim() : '공고 원문을 확인해주세요.',
+      amount: amountMatch ? amountMatch[1].trim() : item.amount || '공고 원문을 확인해주세요.',
+      naver: naverMatch ? naverMatch[1].trim() : '네이버 블로그 글 생성 실패. 공고 원문을 확인해주세요.',
+      tistory: tistoryMatch ? tistoryMatch[1].trim() : '티스토리 글 생성 실패. 공고 원문을 확인해주세요.',
+      blogspot: blogspotMatch ? blogspotMatch[1].trim() : '블로그스팟 글 생성 실패. 공고 원문을 확인해주세요.',
+    };
   } catch (e) {
-    return `📢 ${item.title.slice(0, 40)}`;
+    log(`Gemini 오류: ${e.message}`);
+    return {
+      ment: `📢 ${item.title.slice(0, 40)}`,
+      target: item.target || '공고 원문을 확인해주세요.',
+      amount: item.amount || '공고 원문을 확인해주세요.',
+      naver: '네이버 블로그 글 생성 실패.',
+      tistory: '티스토리 글 생성 실패.',
+      blogspot: '블로그스팟 글 생성 실패.',
+    };
   }
 }
 
@@ -270,7 +382,7 @@ body {
 // 카드 2: 사업목적 + 신청자격
 function makeCard2Html(item) {
   const overviewLines = (item.overview || '내용을 확인해주세요.').slice(0, 200);
-  const targetLines = (item.target || '공고 원문을 확인해주세요.').slice(0, 200);
+  const targetLines = (item.aiTarget || item.target || '공고 원문을 확인해주세요.').slice(0, 300);
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
@@ -336,7 +448,7 @@ body {
 
 // 카드 3: 지원내용
 function makeCard3Html(item) {
-  const amountText = (item.amount || '공고 원문을 확인해주세요.').slice(0, 300);
+  const amountText = (item.aiAmount || item.amount || '공고 원문을 확인해주세요.').slice(0, 300);
   const methodText = (item.method || '').slice(0, 150);
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -500,7 +612,7 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
 
     // 1. 새 공고 수집
-    const newItems = await getNewItems(page, 10);
+    const newItems = await getNewItems(page, 1); // 테스트: 1페이지만
 
     if (newItems.length === 0) {
       log('신규 공고 없음. 메일 발송 생략.');
@@ -547,21 +659,28 @@ async function main() {
 
       log(`  [${i + 1}/${results.length}] ${region} / ${item.title}`);
 
-      // Gemini 딜레이 (10초)
+      // Gemini 딜레이 (공고 사이 10초 + 검수 내부 20초 = 공고당 총 ~30초)
       if (i > 0) await new Promise(r => setTimeout(r, 10000));
 
-      // 멘트 생성
-      const ment = await generateMent(item);
+      // Gemini로 멘트 + 신청자격 + 지원내용 추출
+      const geminiResult = await generateMent(item);
+
+      // Gemini 결과를 item에 반영
+      item.aiMent = geminiResult.ment;
+      item.aiTarget = geminiResult.target;
+      item.aiAmount = geminiResult.amount;
+      item.aiNaver = geminiResult.naver;
+      item.aiTistory = geminiResult.tistory;
+      item.aiBlogspot = geminiResult.blogspot;
 
       // 카드 4장 생성
       try {
-        await htmlToImage(makeCard1Html(item, ment), path.join(itemDir, '01_썸네일.png'), browser);
+        await htmlToImage(makeCard1Html(item, item.aiMent), path.join(itemDir, '01_썸네일.png'), browser);
         await htmlToImage(makeCard2Html(item), path.join(itemDir, '02_사업목적_신청자격.png'), browser);
         await htmlToImage(makeCard3Html(item), path.join(itemDir, '03_지원내용.png'), browser);
         await htmlToImage(makeCard4Html(item, item.url), path.join(itemDir, '04_신청정보.png'), browser);
         log(`    ✅ 카드 4장 생성 완료`);
 
-        // 첨부파일 목록에 추가
         ['01_썸네일.png','02_사업목적_신청자격.png','03_지원내용.png','04_신청정보.png'].forEach(f => {
           allAttachments.push({ filename: `[${region}] ${itemDirName}_${f}`, path: path.join(itemDir, f) });
         });
@@ -569,13 +688,19 @@ async function main() {
         log(`    ⚠️ 이미지 생성 실패: ${e.message}`);
       }
 
-      // 멘트 txt 저장
-      const mentContent = `[${item.title}]\n\n📌 핵심 멘트:\n${ment}\n\n📋 사업개요:\n${item.overview || '없음'}\n\n👥 지원대상:\n${item.target || '없음'}\n\n💰 지원내용:\n${item.amount || '없음'}\n\n📅 신청기간:\n${item.period || item.deadline || '없음'}\n\n📞 문의:\n${item.contact || '없음'}\n\n🔗 링크:\n${item.url}`;
-      fs.writeFileSync(path.join(itemDir, '멘트_요약.txt'), mentContent, 'utf8');
+      // 멘트 + 요약 저장
+      const mentContent = `[${item.title}]\n\n📌 핵심 멘트 (카드뉴스용):\n${item.aiMent}\n\n👥 신청자격:\n${item.aiTarget}\n\n💰 지원내용:\n${item.aiAmount}\n\n📅 신청기간:\n${item.period || item.deadline || '없음'}\n\n📞 문의:\n${item.contact || '없음'}\n\n🔗 링크:\n${item.url}`;
+      fs.writeFileSync(path.join(itemDir, '00_멘트_요약.txt'), mentContent, 'utf8');
+
+      // 플랫폼별 블로그 글 저장
+      fs.writeFileSync(path.join(itemDir, '05_네이버블로그.txt'), item.aiNaver, 'utf8');
+      fs.writeFileSync(path.join(itemDir, '06_티스토리.txt'), item.aiTistory, 'utf8');
+      fs.writeFileSync(path.join(itemDir, '07_블로그스팟.txt'), item.aiBlogspot, 'utf8');
 
       // 이메일 본문
       emailBody += `【${i + 1}】 [${region}] ${item.title}\n`;
-      emailBody += `💬 ${ment}\n`;
+      emailBody += `💬 ${item.aiMent}\n`;
+      emailBody += `👥 ${item.aiTarget.slice(0, 100)}\n`;
       emailBody += `📅 ${item.period || item.deadline || '미상'}\n`;
       emailBody += `🔗 ${item.url}\n`;
       emailBody += `${'-'.repeat(50)}\n\n`;
