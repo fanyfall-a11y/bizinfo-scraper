@@ -239,8 +239,9 @@ async function generateMent(item) {
     const result = await model.generateContent(prompt);
     const firstDraft = result.response.text().trim();
 
-    // 1차 검수: 생성된 블로그 글에서 문제점 체크 후 보정
-    await new Promise(r => setTimeout(r, 20000)); // 검수 전 20초 딜레이
+    // 1차 → 2차 사이 20초 딜레이 (RPM 보호: 1분에 최대 2~3회 호출)
+    log('  ⏳ 검수 전 20초 대기 중...');
+    await new Promise(r => setTimeout(r, 20000));
 
     const reviewPrompt = `다음은 지원사업 공고를 기반으로 작성된 블로그 글 초안입니다.
 아래 검수 기준에 맞게 문제가 있는 부분만 수정해서 최종본을 출력해줘.
@@ -296,78 +297,132 @@ ${firstDraft}
 // 카드 1: 썸네일
 function makeCard1Html(item, ment) {
   const region = extractRegion(item.title, item.details);
+  const cleanTitle = item.title.replace(/^\[[가-힣]+\]\s*/, '');
+
+  // 제목을 핵심 키워드 줄 / 나머지 줄로 분리 (최대 2줄)
+  const words = cleanTitle.split(' ');
+  let line1 = '', line2 = '';
+  if (words.length <= 4) {
+    line1 = cleanTitle;
+  } else {
+    // 앞 3~4단어를 첫 줄, 나머지를 둘째 줄
+    const mid = Math.ceil(words.length / 2);
+    line1 = words.slice(0, mid).join(' ');
+    line2 = words.slice(mid).join(' ');
+  }
+
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
   width:1080px; height:1350px;
-  background: linear-gradient(160deg, #1a4fa0 0%, #2563c7 50%, #1e3a7a 100%);
+  background: linear-gradient(160deg, #0d2d6e 0%, #1a4fa0 40%, #0a1e4a 100%);
   display:flex; flex-direction:column;
   font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;
   color:white; position:relative; overflow:hidden;
 }
+/* 배경 장식 원 */
+.deco1 { position:absolute; border-radius:50%; background:rgba(255,255,255,0.04); width:600px; height:600px; top:-180px; right:-180px; }
+.deco2 { position:absolute; border-radius:50%; background:rgba(255,255,255,0.04); width:450px; height:450px; bottom:-120px; left:-120px; }
+.deco3 { position:absolute; border-radius:50%; background:rgba(100,180,255,0.08); width:300px; height:300px; top:350px; right:-60px; }
+
+/* 상단 바 */
 .top-bar {
-  background:rgba(255,255,255,0.15);
-  padding:24px 60px;
-  font-size:26px; font-weight:600; letter-spacing:2px;
-  display:flex; align-items:center; gap:12px;
+  position:relative; z-index:2;
+  padding:36px 60px 0;
+  display:flex; align-items:center; justify-content:space-between;
 }
+.logo { font-size:28px; font-weight:800; letter-spacing:3px; opacity:0.9; }
+.date-tag { font-size:22px; opacity:0.6; }
+
+/* 중앙 메인 */
 .main {
+  position:relative; z-index:2;
   flex:1; display:flex; flex-direction:column;
   justify-content:center; align-items:center;
-  padding:60px;
+  padding:40px 70px;
+  gap:36px;
 }
+
+/* 지역 태그 */
 .region-tag {
-  background:rgba(255,255,255,0.2);
-  border:2px solid rgba(255,255,255,0.4);
-  padding:10px 28px; border-radius:30px;
-  font-size:28px; margin-bottom:50px; letter-spacing:1px;
-}
-.title {
-  font-size:52px; font-weight:800;
-  text-align:center; line-height:1.4;
-  margin-bottom:50px; word-break:keep-all;
-  text-shadow: 0 2px 8px rgba(0,0,0,0.2);
-}
-.ment {
   background:rgba(255,255,255,0.15);
-  border-left:6px solid rgba(255,255,255,0.8);
-  padding:24px 36px; border-radius:12px;
-  font-size:32px; line-height:1.6;
+  border:1.5px solid rgba(255,255,255,0.35);
+  padding:10px 32px; border-radius:50px;
+  font-size:26px; font-weight:600; letter-spacing:2px;
+}
+
+/* 핵심 사업명 — 크고 임팩트 있게 */
+.title-wrap { text-align:center; word-break:keep-all; }
+.title-line1 {
+  font-size:76px; font-weight:900;
+  line-height:1.2;
+  text-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  display:block;
+}
+.title-line2 {
+  font-size:68px; font-weight:900;
+  line-height:1.2;
+  color:#7ec8ff;
+  text-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  display:block;
+  margin-top:8px;
+}
+
+/* 한 줄 멘트 */
+.ment {
+  background:rgba(255,255,255,0.12);
+  border-left:5px solid #7ec8ff;
+  padding:22px 36px; border-radius:14px;
+  font-size:30px; line-height:1.65;
   text-align:center; word-break:keep-all;
-  margin-bottom:50px;
+  width:100%;
 }
+
+/* 마감일 */
 .deadline {
-  background:rgba(255,200,0,0.25);
-  border:2px solid rgba(255,200,0,0.6);
-  padding:14px 36px; border-radius:30px;
-  font-size:30px; font-weight:700;
+  background:rgba(255,200,0,0.2);
+  border:2px solid rgba(255,200,0,0.55);
+  padding:14px 40px; border-radius:50px;
+  font-size:28px; font-weight:700; letter-spacing:1px;
 }
+
+/* 하단 바 */
 .footer {
-  background:rgba(0,0,0,0.2);
-  padding:24px 60px;
+  position:relative; z-index:2;
+  background:rgba(0,0,0,0.25);
+  padding:26px 60px;
   display:flex; justify-content:space-between; align-items:center;
-  font-size:24px; opacity:0.8;
-}
-.deco-circle {
-  position:absolute; border-radius:50%;
-  background:rgba(255,255,255,0.05);
+  font-size:24px; opacity:0.85;
 }
 </style></head>
 <body>
-  <div class="deco-circle" style="width:400px;height:400px;top:-100px;right:-100px;"></div>
-  <div class="deco-circle" style="width:300px;height:300px;bottom:150px;left:-80px;"></div>
-  <div class="top-bar">💡 대표님들을 위한 BIZ-TIP</div>
+  <div class="deco1"></div>
+  <div class="deco2"></div>
+  <div class="deco3"></div>
+
+  <div class="top-bar">
+    <span class="logo">🔷 나혼자창업</span>
+    <span class="date-tag">${new Date().toLocaleDateString('ko-KR')}</span>
+  </div>
+
   <div class="main">
-    <div class="region-tag">📍 ${region}</div>
-    <div class="title">${item.title.replace(/^\[[가-힣]+\]\s*/, '').slice(0, 50)}${item.title.replace(/^\[[가-힣]+\]\s*/, '').length > 50 ? '...' : ''}</div>
+    <div class="region-tag">📍 ${region} 지원사업</div>
+
+    <div class="title-wrap">
+      <span class="title-line1">${line1}</span>
+      ${line2 ? `<span class="title-line2">${line2}</span>` : ''}
+    </div>
+
     <div class="ment">${ment}</div>
+
     ${item.deadline ? `<div class="deadline">⏰ 마감 ${item.deadline}</div>` : ''}
   </div>
+
   <div class="footer">
-    <span>🔷 정책캐처</span>
-    <span>${new Date().toLocaleDateString('ko-KR')}</span>
+    <span>💡 대표님들을 위한 BIZ-TIP</span>
+    <span>▶ 공고 원문 확인</span>
   </div>
 </body></html>`;
 }
@@ -433,7 +488,7 @@ body {
     </div>
   </div>
   <div class="footer">
-    <span>🔷 정책캐처</span>
+    <span>🔷 나혼자창업</span>
     <span>${new Date().toLocaleDateString('ko-KR')}</span>
   </div>
 </body></html>`;
@@ -500,7 +555,7 @@ body {
     </div>` : ''}
   </div>
   <div class="footer">
-    <span>🔷 정책캐처</span>
+    <span>🔷 나혼자창업</span>
     <span>${new Date().toLocaleDateString('ko-KR')}</span>
   </div>
 </body></html>`;
@@ -574,7 +629,7 @@ body {
     <div class="cta">🔗 지금 바로 신청하세요!</div>
   </div>
   <div class="footer">
-    <span>🔷 정책캐처</span>
+    <span>🔷 나혼자창업</span>
     <span>${new Date().toLocaleDateString('ko-KR')}</span>
   </div>
 </body></html>`;
@@ -605,7 +660,8 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
 
     // 1. 새 공고 수집
-    const newItems = await getNewItems(page, 1); // 테스트: 1페이지만
+    const newItems = await getNewItems(page, 1); // 테스트: 1페이지
+    newItems.splice(1); // 테스트: 1건만
 
     if (newItems.length === 0) {
       log('신규 공고 없음. 메일 발송 생략.');
@@ -634,7 +690,7 @@ async function main() {
     const baseDir = path.join(__dirname, 'output', `daily_${timestamp}`);
     fs.mkdirSync(baseDir, { recursive: true });
 
-    let emailBody = `📬 정책캐처 신규 지원사업 알림\n`;
+    let emailBody = `📬 나혼자창업 신규 지원사업 알림\n`;
     emailBody += `📅 ${new Date().toLocaleDateString('ko-KR')} 기준 ${results.length}건\n`;
     emailBody += `${'='.repeat(50)}\n\n`;
 
@@ -723,9 +779,9 @@ async function main() {
     });
 
     await transporter.sendMail({
-      from: `"정책캐처 자동수집" <${process.env.GMAIL_USER}>`,
+      from: `"나혼자창업 자동수집" <${process.env.GMAIL_USER}>`,
       to: TO_EMAIL,
-      subject: `📋 정책캐처 신규 공고 ${results.length}건 - ${new Date().toLocaleDateString('ko-KR')}`,
+      subject: `📋 나혼자창업 신규 공고 ${results.length}건 - ${new Date().toLocaleDateString('ko-KR')}`,
       text: emailBody,
       attachments: allAttachments.slice(0, 20),
     });
