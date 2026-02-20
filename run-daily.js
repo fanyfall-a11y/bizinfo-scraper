@@ -173,9 +173,9 @@ async function scrapeDetail(page, url) {
   }
 }
 
-// 429 오류 시 자동 재시도 래퍼 (1차 60초, 2차 120초, 3차 포기)
+// 429 오류 시 자동 재시도 래퍼 (1차 60초, 2차 120초, 3차 10분, 그 후 한도초과 에러 throw)
 async function geminiCallWithRetry(fn, label) {
-  const delays = [60000, 120000];
+  const delays = [60000, 120000, 600000]; // 60초 → 120초 → 10분
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       return await fn();
@@ -185,6 +185,11 @@ async function geminiCallWithRetry(fn, label) {
         const wait = delays[attempt];
         log(`  ⚠️ [${label}] Gemini 429 오류 → ${wait / 1000}초 대기 후 재시도 (${attempt + 1}/${delays.length})`);
         await new Promise(r => setTimeout(r, wait));
+      } else if (is429) {
+        // 모든 재시도 소진 → 한도초과 전용 에러
+        const quotaErr = new Error('QUOTA_EXCEEDED');
+        quotaErr.isQuotaExceeded = true;
+        throw quotaErr;
       } else {
         throw e;
       }
@@ -822,6 +827,9 @@ async function main() {
     emailBody += `${'='.repeat(50)}\n\n`;
 
     const allAttachments = [];
+    let quotaExceeded = false;      // 한도 초과 여부
+    let processedCount = 0;         // 실제 처리 완료된 공고 수
+    const skippedItems = [];        // 한도 초과로 못 처리한 공고 목록
 
     // 4. 각 공고별 처리
     for (let i = 0; i < results.length; i++) {
@@ -829,17 +837,42 @@ async function main() {
       const region = extractRegion(item.title, item.details);
       const itemDirName = sanitize(item.title.replace(/^\[[가-힣]+\]\s*/, ''));
 
+      // 한도 초과 상태면 나머지는 스킵 목록에만 추가
+      if (quotaExceeded) {
+        skippedItems.push({ region, title: item.title, url: item.url });
+        continue;
+      }
+
       // 지역별 > 사업명별 폴더
       const itemDir = path.join(baseDir, region, itemDirName);
       fs.mkdirSync(itemDir, { recursive: true });
 
       log(`  [${i + 1}/${results.length}] ${region} / ${item.title}`);
 
-      // Gemini 딜레이 (공고 사이 10초 + 검수 내부 20초 = 공고당 총 ~30초)
+      // Gemini 딜레이 (공고 사이 10초)
       if (i > 0) await new Promise(r => setTimeout(r, 10000));
 
       // Gemini로 멘트 + 신청자격 + 지원내용 추출 (browser 전달 → HWP Vision 활용)
-      const geminiResult = await generateMent(item, browser);
+      let geminiResult;
+      try {
+        geminiResult = await generateMent(item, browser);
+      } catch (e) {
+        if (e.isQuotaExceeded) {
+          log(`  🚫 Gemini 일일 한도 초과 → 이후 공고(${results.length - i}건) 처리 중단, 메일로 안내`);
+          quotaExceeded = true;
+          skippedItems.push({ region, title: item.title, url: item.url });
+          continue;
+        }
+        log(`  ⚠️ Gemini 오류: ${e.message}`);
+        geminiResult = {
+          ment: `📢 ${item.title.slice(0, 40)}`,
+          target: item.target || '공고 원문을 확인해주세요.',
+          amount: item.amount || '공고 원문을 확인해주세요.',
+          naver: '네이버 블로그 글 생성 실패.',
+          tistory: '티스토리 글 생성 실패.',
+          blogspot: '블로그스팟 글 생성 실패.',
+        };
+      }
 
       // Gemini 결과를 item에 반영
       item.aiMent = geminiResult.ment;
@@ -880,6 +913,23 @@ async function main() {
       emailBody += `📅 ${item.period || item.deadline || '미상'}\n`;
       emailBody += `🔗 ${item.url}\n`;
       emailBody += `${'-'.repeat(50)}\n\n`;
+
+      processedCount++;
+    }
+
+    // 한도 초과로 미처리된 공고 안내 추가
+    if (quotaExceeded && skippedItems.length > 0) {
+      emailBody += `\n${'⚠️'.repeat(10)}\n`;
+      emailBody += `🚫 Gemini API 일일 한도 초과로 아래 ${skippedItems.length}건은 처리하지 못했습니다.\n`;
+      emailBody += `📌 처리 완료: ${processedCount}건 / 전체 신규: ${results.length}건\n`;
+      emailBody += `🔄 내일 새벽 자동실행 시 나머지 공고는 이미 수집된 것으로 처리되어 재전송되지 않습니다.\n`;
+      emailBody += `👉 아래 공고는 직접 bizinfo.go.kr에서 확인해주세요.\n\n`;
+      skippedItems.forEach((s, idx) => {
+        emailBody += `[미처리 ${idx + 1}] [${s.region}] ${s.title}\n`;
+        emailBody += `🔗 ${s.url}\n\n`;
+      });
+      emailBody += `${'⚠️'.repeat(10)}\n`;
+      log(`📧 한도 초과 안내 포함하여 메일 발송 (처리: ${processedCount}건, 미처리: ${skippedItems.length}건)`);
     }
 
     // 5. DB 업데이트
