@@ -932,9 +932,12 @@ async function main() {
       log(`📧 한도 초과 안내 포함하여 메일 발송 (처리: ${processedCount}건, 미처리: ${skippedItems.length}건)`);
     }
 
-    // 5. DB 업데이트
+    // 5. DB 업데이트 (처리 완료된 공고만 저장 - 미처리 공고는 내일 다시 수집)
     const db = loadDB();
-    results.forEach(item => {
+    const processedItems = quotaExceeded
+      ? results.filter(item => !skippedItems.some(s => s.url === item.url))
+      : results;
+    processedItems.forEach(item => {
       const id = extractId(item.url);
       if (id) db[id] = {
         title: item.title,
