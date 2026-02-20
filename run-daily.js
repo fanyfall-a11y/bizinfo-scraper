@@ -993,12 +993,14 @@ async function main() {
     });
 
     // 최종 Gemini 호출 통계
-    const finalStats = getGeminiStats();
-    log(`📊 Gemini 최종 통계 | 전체 호출: ${finalStats.total}회 | 마지막 1분 호출: ${finalStats.rpm}회`);
+    const totalCalls = geminiStats.total;
+    const totalMinutes = geminiStats.callTimes.length >= 2
+      ? (geminiStats.callTimes[geminiStats.callTimes.length - 1].time - geminiStats.callTimes[0].time) / 60000
+      : 1;
+    const avgRpm = totalMinutes > 0 ? (totalCalls / totalMinutes).toFixed(1) : totalCalls;
+    log(`📊 Gemini 최종 통계 | 전체 호출: ${totalCalls}회 | 평균 분당 ${avgRpm}회`);
     emailBody += `\n${'─'.repeat(50)}\n`;
-    emailBody += `📊 Gemini API 사용 통계\n`;
-    emailBody += `• 이번 작업 전체 호출 수: ${finalStats.total}회\n`;
-    emailBody += `• 공고 1건당 평균 호출: ${processedCount > 0 ? (finalStats.total / processedCount).toFixed(1) : 0}회\n`;
+    emailBody += `📊 Gemini 통계: 전체 ${totalCalls}회 호출 / 평균 분당 ${avgRpm}회\n`;
 
     log(`✅ 완료! 총 ${results.length}건 → ${TO_EMAIL} 전송됨`);
     log(`📁 저장위치: ${baseDir}`);
