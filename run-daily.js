@@ -140,7 +140,7 @@ async function scrapeDetail(page, url) {
 async function generateMent(item) {
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const overview = item.details.find(d => d.label.includes('사업개요'));
     const target = item.details.find(d => d.label.includes('지원대상'));
@@ -285,6 +285,9 @@ async function main() {
     for (let i = 0; i < results.length; i++) {
       const item = results[i];
       log(`  멘트+이미지 생성: ${item.title}`);
+
+      // Gemini RPM 한도 초과 방지 (넉넉하게 10초 딜레이)
+      if (i > 0) await new Promise(r => setTimeout(r, 10000));
 
       // 멘트 생성
       const ment = await generateMent(item);
