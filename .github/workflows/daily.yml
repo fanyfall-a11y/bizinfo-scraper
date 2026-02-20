@@ -37,6 +37,7 @@ jobs:
       - name: 일일 수집 + 메일 발송 실행
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TO_EMAIL: nagairams1@gmail.com

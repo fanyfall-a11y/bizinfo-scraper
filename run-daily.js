@@ -660,8 +660,7 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
 
     // 1. 새 공고 수집
-    const newItems = await getNewItems(page, 1); // 테스트: 1페이지
-    newItems.splice(1); // 테스트: 1건만
+    const newItems = await getNewItems(page, 3); // 3페이지까지 수집
 
     if (newItems.length === 0) {
       log('신규 공고 없음. 메일 발송 생략.');
