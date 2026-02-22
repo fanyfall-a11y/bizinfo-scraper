@@ -87,7 +87,7 @@ async function getNewItems(page, maxPages = 5) {
 
   while (currentPage <= maxPages) {
     const url = currentPage === 1 ? LIST_URL : `${LIST_URL}&cpage=${currentPage}`;
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(r => setTimeout(r, 1500));
 
     const items = await page.evaluate(() => {
@@ -130,7 +130,7 @@ async function getNewItems(page, maxPages = 5) {
 // 상세 페이지 스크래핑 (사업목적, 신청자격, 지원내용, 모집구분 포함)
 async function scrapeDetail(page, url) {
   try {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(r => setTimeout(r, 2000));
 
     return await page.evaluate(() => {
@@ -230,7 +230,7 @@ async function extractHwpContent(iframeSrc, title, browser) {
     const viewerPage = await browser.newPage();
     await viewerPage.setViewport({ width: 1200, height: 1400 });
     await viewerPage.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
-    await viewerPage.goto(iframeSrc, { waitUntil: 'networkidle2', timeout: 30000 });
+    await viewerPage.goto(iframeSrc, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(r => setTimeout(r, 5000));
 
     // 총 페이지 수 파악 (최대 6페이지까지만)
