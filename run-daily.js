@@ -856,15 +856,15 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
 
     // 1. 새 공고 수집
-    const newItems = await getNewItems(page, 1); // 1페이지까지 수집 (테스트용)
-    const limitedItems = newItems.slice(0, 3); // 최대 3개만 처리 (테스트용)
+    const newItems = await getNewItems(page, 15); // 15페이지까지 수집
+    const limitedItems = newItems; // 전체 처리
 
     if (newItems.length === 0) {
       log('신규 공고 없음. 메일 발송 생략.');
       return;
     }
 
-    log(`신규 공고 ${newItems.length}건 발견. 상세 수집 시작... (테스트: ${limitedItems.length}건만 처리)`);
+    log(`신규 공고 ${newItems.length}건 발견. 상세 수집 시작...`);
 
     // 2. 상세 정보 수집
     const results = [];
