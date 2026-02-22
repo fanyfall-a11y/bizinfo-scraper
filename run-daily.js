@@ -590,10 +590,24 @@ body {
 </body></html>`;
 }
 
+// 텍스트를 HTML로 변환 (불릿포인트 줄바꿈 처리)
+function formatText(text) {
+  return text
+    .replace(/•/g, '\n•')           // 불릿 앞에 줄바꿈
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => line.startsWith('•')
+      ? `<div style="display:flex;gap:8px;margin-bottom:10px"><span style="flex-shrink:0">•</span><span>${line.slice(1).trim()}</span></div>`
+      : `<div style="margin-bottom:10px">${line}</div>`
+    )
+    .join('');
+}
+
 // 카드 2: 사업목적 + 신청자격
 function makeCard2Html(item) {
-  const overviewLines = (item.overview || '내용을 확인해주세요.').slice(0, 200);
-  const targetLines = (item.aiTarget || item.target || '공고 원문을 확인해주세요.').slice(0, 300);
+  const overviewLines = formatText((item.overview || '내용을 확인해주세요.').slice(0, 200));
+  const targetLines = formatText((item.aiTarget || item.target || '공고 원문을 확인해주세요.').slice(0, 400));
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
@@ -659,8 +673,8 @@ body {
 
 // 카드 3: 지원내용
 function makeCard3Html(item) {
-  const amountText = (item.aiAmount || item.amount || '공고 원문을 확인해주세요.').slice(0, 300);
-  const methodText = (item.method || '').slice(0, 150);
+  const amountText = formatText((item.aiAmount || item.amount || '공고 원문을 확인해주세요.').slice(0, 400));
+  const methodText = formatText((item.aiMethod || item.method || '').slice(0, 200));
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
