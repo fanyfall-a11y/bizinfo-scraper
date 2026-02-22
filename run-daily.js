@@ -267,7 +267,7 @@ async function extractHwpContent(iframeSrc, title, browser) {
     // 스크린샷 전체를 Gemini Vision에 한번에 전달 (1회 호출)
     log('  🤖 Gemini Vision으로 HWP 내용 추출 중...');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const parts = [{
       text: `다음은 지원사업 공고문 이미지(${totalPages}페이지)입니다. 아래 항목만 정확하게 추출해주세요. 이미지에 없는 내용은 절대 추가하지 마세요.\n\n1. 지원대상(신청자격): 누가 신청할 수 있는지\n2. 지원내용: 지원금액, 지원규모, 지원항목\n3. 신청방법: 어떻게 신청하는지\n\n각 항목을 불릿포인트(•)로 정리해서 아래 형식으로 출력:\n---지원대상---\n(내용)\n---지원내용---\n(내용)\n---신청방법---\n(내용)`
@@ -304,7 +304,7 @@ async function extractHwpContent(iframeSrc, title, browser) {
 async function generateMent(item, browser) {
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const overview = item.overview || '';
     const title = item.title;
@@ -318,9 +318,9 @@ async function generateMent(item, browser) {
       hwpTarget = hwp.hwpTarget;
       hwpAmount = hwp.hwpAmount;
       hwpMethod = hwp.hwpMethod;
-      // HWP 추출 후 20초 딜레이 (RPM 보호)
-      log('  ⏳ HWP 추출 후 20초 대기 중...');
-      await new Promise(r => setTimeout(r, 20000));
+      // HWP 추출 후 3초 딜레이
+      log('  ⏳ HWP 추출 후 3초 대기 중...');
+      await new Promise(r => setTimeout(r, 3000));
     }
 
     // HWP에서 추출한 내용 + 사업개요 합쳐서 Gemini에 전달
@@ -394,9 +394,9 @@ async function generateMent(item, browser) {
     );
     const firstDraft = result.response.text().trim();
 
-    // 1차 → 2차 사이 20초 딜레이
-    log('  ⏳ 검수 전 20초 대기 중...');
-    await new Promise(r => setTimeout(r, 20000));
+    // 1차 → 2차 사이 3초 딜레이
+    log('  ⏳ 검수 전 3초 대기 중...');
+    await new Promise(r => setTimeout(r, 3000));
 
     const reviewPrompt = `다음은 지원사업 공고를 기반으로 작성된 블로그 글 초안입니다.
 아래 검수 기준에 맞게 문제가 있는 부분만 수정해서 최종본을 출력해줘.
@@ -875,8 +875,8 @@ async function main() {
 
       log(`  [${i + 1}/${results.length}] ${region} / ${item.title}`);
 
-      // Gemini 딜레이 (공고 사이 10초)
-      if (i > 0) await new Promise(r => setTimeout(r, 10000));
+      // Gemini 딜레이 (공고 사이 3초)
+      if (i > 0) await new Promise(r => setTimeout(r, 3000));
 
       // Gemini로 멘트 + 신청자격 + 지원내용 추출 (browser 전달 → HWP Vision 활용)
       let geminiResult;
