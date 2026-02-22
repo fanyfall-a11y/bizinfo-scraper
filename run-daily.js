@@ -353,6 +353,12 @@ async function generateMent(item, browser) {
 ---지원내용---
 (지원금액, 지원내용만. 불릿포인트(•)로 3~5줄. 정보 없으면 "공고 원문을 확인해주세요.")
 
+---신청자격_카드용---
+(신청자격 중 핵심 제한 조건 최대 3가지만. 업종/업태, 지역, 업력, 규모, 제외조건 등 이 공고에서 가장 중요한 것 우선. 각 조건을 불릿포인트(•)로. 마지막에 "• 자세한 조건은 공고 원문 확인" 추가)
+
+---지원내용_카드용---
+(지원내용 중 핵심 3가지만. 지원금액/한도, 지원비율, 지원건수, 지원종류 중 가장 중요한 것 우선. 각 항목을 불릿포인트(•)로. 마지막에 "• 자세한 내용은 공고 원문 확인" 추가)
+
 ---네이버블로그---
 [작성 지침]
 - 1500~2000자
@@ -431,25 +437,36 @@ ${firstDraft}
     // 파싱
     const mentMatch = text.match(/---썸네일멘트---([\s\S]*?)---신청자격---/);
     const targetMatch = text.match(/---신청자격---([\s\S]*?)---지원내용---/);
-    const amountMatch = text.match(/---지원내용---([\s\S]*?)---네이버블로그---/);
+    const amountMatch = text.match(/---지원내용---([\s\S]*?)---신청자격_카드용---/);
+    const targetCardMatch = text.match(/---신청자격_카드용---([\s\S]*?)---지원내용_카드용---/);
+    const amountCardMatch = text.match(/---지원내용_카드용---([\s\S]*?)---네이버블로그---/);
     const naverMatch = text.match(/---네이버블로그---([\s\S]*?)---티스토리---/);
     const tistoryMatch = text.match(/---티스토리---([\s\S]*?)---블로그스팟---/);
     const blogspotMatch = text.match(/---블로그스팟---([\s\S]*?)$/);
 
+    const fullTarget = targetMatch ? targetMatch[1].trim() : hwpTarget || '공고 원문을 확인해주세요.';
+    const fullAmount = amountMatch ? amountMatch[1].trim() : hwpAmount || item.amount || '공고 원문을 확인해주세요.';
+
     return {
       ment: mentMatch ? mentMatch[1].trim() : `📢 ${item.title.slice(0, 40)}`,
-      target: targetMatch ? targetMatch[1].trim() : hwpTarget || '공고 원문을 확인해주세요.',
-      amount: amountMatch ? amountMatch[1].trim() : hwpAmount || item.amount || '공고 원문을 확인해주세요.',
+      target: fullTarget,
+      amount: fullAmount,
+      targetCard: targetCardMatch ? targetCardMatch[1].trim() : fullTarget,
+      amountCard: amountCardMatch ? amountCardMatch[1].trim() : fullAmount,
       naver: naverMatch ? naverMatch[1].trim() : '네이버 블로그 글 생성 실패. 공고 원문을 확인해주세요.',
       tistory: tistoryMatch ? tistoryMatch[1].trim() : '티스토리 글 생성 실패. 공고 원문을 확인해주세요.',
       blogspot: blogspotMatch ? blogspotMatch[1].trim() : '블로그스팟 글 생성 실패. 공고 원문을 확인해주세요.',
     };
   } catch (e) {
     log(`Gemini 오류: ${e.message}`);
+    const fallbackTarget = item.target || '공고 원문을 확인해주세요.';
+    const fallbackAmount = item.amount || '공고 원문을 확인해주세요.';
     return {
       ment: `📢 ${item.title.slice(0, 40)}`,
-      target: item.target || '공고 원문을 확인해주세요.',
-      amount: item.amount || '공고 원문을 확인해주세요.',
+      target: fallbackTarget,
+      amount: fallbackAmount,
+      targetCard: fallbackTarget,
+      amountCard: fallbackAmount,
       naver: '네이버 블로그 글 생성 실패.',
       tistory: '티스토리 글 생성 실패.',
       blogspot: '블로그스팟 글 생성 실패.',
@@ -607,7 +624,8 @@ function formatText(text) {
 // 카드 2: 사업목적 + 신청자격
 function makeCard2Html(item) {
   const overviewLines = formatText((item.overview || '내용을 확인해주세요.').slice(0, 200));
-  const targetLines = formatText((item.aiTarget || item.target || '공고 원문을 확인해주세요.').slice(0, 400));
+  // 카드용 축약 버전 우선, 없으면 전체 버전 사용
+  const targetLines = formatText((item.aiTargetCard || item.aiTarget || item.target || '공고 원문을 확인해주세요.').slice(0, 400));
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
@@ -673,7 +691,8 @@ body {
 
 // 카드 3: 지원내용
 function makeCard3Html(item) {
-  const amountText = formatText((item.aiAmount || item.amount || '공고 원문을 확인해주세요.').slice(0, 400));
+  // 카드용 축약 버전 우선, 없으면 전체 버전 사용
+  const amountText = formatText((item.aiAmountCard || item.aiAmount || item.amount || '공고 원문을 확인해주세요.').slice(0, 400));
   const methodText = formatText((item.aiMethod || item.method || '').slice(0, 200));
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -927,6 +946,8 @@ async function main() {
       item.aiMent = geminiResult.ment;
       item.aiTarget = geminiResult.target;
       item.aiAmount = geminiResult.amount;
+      item.aiTargetCard = geminiResult.targetCard; // 카드용 축약 버전
+      item.aiAmountCard = geminiResult.amountCard; // 카드용 축약 버전
       item.aiNaver = geminiResult.naver;
       item.aiTistory = geminiResult.tistory;
       item.aiBlogspot = geminiResult.blogspot;
