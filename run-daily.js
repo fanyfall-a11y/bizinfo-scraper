@@ -295,8 +295,12 @@ async function extractHwpContent(iframeSrc, title, browser) {
       hwpMethod: methodMatch ? methodMatch[1].trim() : '',
     };
   } catch (e) {
-    log(`  ⚠️ HWP 추출 실패: ${e.message}`);
-    return { hwpTarget: '', hwpAmount: '', hwpMethod: '' };
+    if (e.isQuotaExceeded) throw e; // 한도 초과는 그대로 위로 전달
+    log(`  ❌ HWP 추출 3회 모두 실패: ${e.message}`);
+    log(`  🚫 Gemini API 오류로 프로그램을 종료합니다.`);
+    const fatalErr = new Error('HWP_FATAL');
+    fatalErr.isFatal = true;
+    throw fatalErr;
   }
 }
 
@@ -889,6 +893,10 @@ async function main() {
           quotaExceeded = true;
           skippedItems.push({ region, title: item.title, url: item.url });
           continue;
+        }
+        if (e.isFatal) {
+          log(`  🚫 치명적 오류로 프로그램 종료`);
+          throw e; // main catch로 전달 → 프로그램 종료
         }
         log(`  ⚠️ Gemini 오류: ${e.message}`);
         geminiResult = {
