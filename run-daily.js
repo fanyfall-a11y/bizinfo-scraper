@@ -938,10 +938,6 @@ async function main() {
         await htmlToImage(makeCard3Html(item), path.join(itemDir, '03_지원내용.png'), browser);
         await htmlToImage(makeCard4Html(item, item.url), path.join(itemDir, '04_신청정보.png'), browser);
         log(`    ✅ 카드 4장 생성 완료`);
-
-        ['01_썸네일.png','02_사업목적_신청자격.png','03_지원내용.png','04_신청정보.png'].forEach(f => {
-          allAttachments.push({ filename: `[${region}] ${itemDirName}_${f}`, path: path.join(itemDir, f) });
-        });
       } catch (e) {
         log(`    ⚠️ 이미지 생성 실패: ${e.message}`);
       }
@@ -954,6 +950,17 @@ async function main() {
       fs.writeFileSync(path.join(itemDir, '05_네이버블로그.txt'), item.aiNaver, 'utf8');
       fs.writeFileSync(path.join(itemDir, '06_티스토리.txt'), item.aiTistory, 'utf8');
       fs.writeFileSync(path.join(itemDir, '07_블로그스팟.txt'), item.aiBlogspot, 'utf8');
+
+      // 폴더를 zip으로 묶어서 첨부
+      try {
+        const zipPath = path.join(baseDir, `[${region}] ${itemDirName}.zip`);
+        const { execSync } = require('child_process');
+        execSync(`cd "${baseDir}" && zip -r "${zipPath}" "${path.relative(baseDir, itemDir)}"`, { stdio: 'ignore' });
+        allAttachments.push({ filename: `[${region}] ${itemDirName}.zip`, path: zipPath });
+        log(`    ✅ zip 압축 완료`);
+      } catch (e) {
+        log(`    ⚠️ zip 압축 실패: ${e.message}`);
+      }
 
       // 이메일 본문
       emailBody += `【${i + 1}】 [${region}] ${item.title}\n`;
@@ -1012,7 +1019,7 @@ async function main() {
       to: TO_EMAIL,
       subject: `📋 나혼자창업 신규 공고 ${results.length}건 - ${new Date().toLocaleDateString('ko-KR')}`,
       text: emailBody,
-      attachments: allAttachments.slice(0, 20),
+      attachments: allAttachments, // 공고별 zip 파일 첨부
     });
 
     // 최종 Gemini 호출 통계
