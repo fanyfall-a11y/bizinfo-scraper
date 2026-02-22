@@ -972,17 +972,6 @@ async function main() {
       fs.writeFileSync(path.join(itemDir, '06_티스토리.txt'), item.aiTistory, 'utf8');
       fs.writeFileSync(path.join(itemDir, '07_블로그스팟.txt'), item.aiBlogspot, 'utf8');
 
-      // 폴더를 zip으로 묶어서 첨부
-      try {
-        const zipPath = path.join(baseDir, `[${region}] ${itemDirName}.zip`);
-        const { execSync } = require('child_process');
-        execSync(`cd "${baseDir}" && zip -r "${zipPath}" "${path.relative(baseDir, itemDir)}"`, { stdio: 'ignore' });
-        allAttachments.push({ filename: `[${region}] ${itemDirName}.zip`, path: zipPath });
-        log(`    ✅ zip 압축 완료`);
-      } catch (e) {
-        log(`    ⚠️ zip 압축 실패: ${e.message}`);
-      }
-
       // 이메일 본문
       emailBody += `【${i + 1}】 [${region}] ${item.title}\n`;
       emailBody += `💬 ${item.aiMent}\n`;
@@ -992,6 +981,23 @@ async function main() {
       emailBody += `${'-'.repeat(50)}\n\n`;
 
       processedCount++;
+    }
+
+    // 모든 공고 처리 완료 후 → 지역별 폴더를 zip으로 묶어서 첨부
+    const { execSync } = require('child_process');
+    const regionDirs = fs.readdirSync(baseDir, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+
+    for (const regionName of regionDirs) {
+      try {
+        const zipPath = path.join(baseDir, `[${regionName}].zip`);
+        execSync(`cd "${baseDir}" && zip -r "${zipPath}" "${regionName}"`, { stdio: 'ignore' });
+        allAttachments.push({ filename: `[${regionName}].zip`, path: zipPath });
+        log(`  ✅ [${regionName}] zip 압축 완료`);
+      } catch (e) {
+        log(`  ⚠️ [${regionName}] zip 압축 실패: ${e.message}`);
+      }
     }
 
     // 한도 초과로 미처리된 공고 안내 추가
