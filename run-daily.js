@@ -267,7 +267,7 @@ async function extractHwpContent(iframeSrc, title, browser) {
     // 스크린샷 전체를 Gemini Vision에 한번에 전달 (1회 호출)
     log('  🤖 Gemini Vision으로 HWP 내용 추출 중...');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-001' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const parts = [{
       text: `다음은 지원사업 공고문 이미지(${totalPages}페이지)입니다. 아래 항목만 정확하게 추출해주세요. 이미지에 없는 내용은 절대 추가하지 마세요.\n\n1. 지원대상(신청자격): 누가 신청할 수 있는지\n2. 지원내용: 지원금액, 지원규모, 지원항목\n3. 신청방법: 어떻게 신청하는지\n\n각 항목을 불릿포인트(•)로 정리해서 아래 형식으로 출력:\n---지원대상---\n(내용)\n---지원내용---\n(내용)\n---신청방법---\n(내용)`
@@ -304,7 +304,7 @@ async function extractHwpContent(iframeSrc, title, browser) {
 async function generateMent(item, browser) {
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-001' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const overview = item.overview || '';
     const title = item.title;
