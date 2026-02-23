@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { sendDailyReport } = require('./mailer');
+const { google } = require('googleapis');
 
 const LIST_URL = 'https://www.bizinfo.go.kr/sii/siia/selectSIIA200View.do?schPblancDiv=01';
 const DB_FILE = path.join(__dirname, 'collected_ids.json');
@@ -36,6 +37,67 @@ function log(msg) {
   const line = `[${new Date().toLocaleString('ko-KR')}] ${msg}`;
   console.log(line);
   fs.appendFileSync(LOG_FILE, line + '\n', 'utf8');
+}
+
+// 구글 드라이브 인증
+function getDriveAuth() {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  });
+  return auth;
+}
+
+// 드라이브에 폴더 생성 (없으면 만들고, 있으면 기존 ID 반환)
+async function getOrCreateDriveFolder(drive, name, parentId) {
+  const res = await drive.files.list({
+    q: `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`,
+    fields: 'files(id, name)',
+  });
+  if (res.data.files.length > 0) return res.data.files[0].id;
+
+  const folder = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    },
+    fields: 'id',
+  });
+  return folder.data.id;
+}
+
+// 드라이브에 파일 업로드
+async function uploadFileToDrive(drive, filePath, fileName, parentId) {
+  const fileStream = fs.createReadStream(filePath);
+  const res = await drive.files.create({
+    requestBody: {
+      name: fileName,
+      parents: [parentId],
+    },
+    media: {
+      body: fileStream,
+    },
+    fields: 'id, webViewLink',
+  });
+  return res.data;
+}
+
+// 지역 폴더 전체를 드라이브에 업로드 (지역폴더 > 공고폴더 > 파일들)
+async function uploadRegionToDrive(drive, regionLocalPath, regionName, rootFolderId) {
+  const regionFolderId = await getOrCreateDriveFolder(drive, regionName, rootFolderId);
+  const itemDirs = fs.readdirSync(regionLocalPath, { withFileTypes: true }).filter(d => d.isDirectory());
+  for (const itemDir of itemDirs) {
+    const itemLocalPath = path.join(regionLocalPath, itemDir.name);
+    const itemFolderId = await getOrCreateDriveFolder(drive, itemDir.name, regionFolderId);
+    const files = fs.readdirSync(itemLocalPath).filter(f => fs.statSync(path.join(itemLocalPath, f)).isFile());
+    for (const fileName of files) {
+      const filePath = path.join(itemLocalPath, fileName);
+      await uploadFileToDrive(drive, filePath, fileName, itemFolderId);
+    }
+  }
+  return regionFolderId;
 }
 
 function loadDB() {
@@ -983,22 +1045,42 @@ async function main() {
       processedCount++;
     }
 
-    // 모든 공고 처리 완료 후 → 지역별 폴더를 zip으로 묶어서 첨부
-    const { execSync } = require('child_process');
+    // 모든 공고 처리 완료 후 → 구글 드라이브에 업로드
+    log('📤 구글 드라이브 업로드 시작...');
+    const auth = getDriveAuth();
+    const drive = google.drive({ version: 'v3', auth });
+    const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+    // 오늘 날짜 폴더 생성 (예: 2026-02-23)
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const dateFolderId = await getOrCreateDriveFolder(drive, dateStr, ROOT_FOLDER_ID);
+
     const regionDirs = fs.readdirSync(baseDir, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => d.name);
 
+    const driveLinks = [];
     for (const regionName of regionDirs) {
       try {
-        const zipPath = path.join(baseDir, `[${regionName}].zip`);
-        execSync(`cd "${baseDir}" && zip -r "${zipPath}" "${regionName}"`, { stdio: 'ignore' });
-        allAttachments.push({ filename: `[${regionName}].zip`, path: zipPath });
-        log(`  ✅ [${regionName}] zip 압축 완료`);
+        const regionLocalPath = path.join(baseDir, regionName);
+        const regionFolderId = await uploadRegionToDrive(drive, regionLocalPath, regionName, dateFolderId);
+        const link = `https://drive.google.com/drive/folders/${regionFolderId}`;
+        driveLinks.push({ region: regionName, link });
+        log(`  ✅ [${regionName}] 드라이브 업로드 완료`);
       } catch (e) {
-        log(`  ⚠️ [${regionName}] zip 압축 실패: ${e.message}`);
+        log(`  ⚠️ [${regionName}] 드라이브 업로드 실패: ${e.message}`);
       }
     }
+
+    // 드라이브 링크를 이메일 본문에 추가
+    const dateFolderLink = `https://drive.google.com/drive/folders/${dateFolderId}`;
+    emailBody += `\n${'='.repeat(50)}\n`;
+    emailBody += `📁 구글 드라이브 전체 폴더:\n${dateFolderLink}\n\n`;
+    emailBody += `📂 지역별 폴더 링크:\n`;
+    driveLinks.forEach(({ region, link }) => {
+      emailBody += `  • [${region}] ${link}\n`;
+    });
+    emailBody += `${'='.repeat(50)}\n`;
 
     // 한도 초과로 미처리된 공고 안내 추가
     if (quotaExceeded && skippedItems.length > 0) {
@@ -1046,7 +1128,6 @@ async function main() {
       to: TO_EMAIL,
       subject: `📋 나혼자창업 신규 공고 ${results.length}건 - ${new Date().toLocaleDateString('ko-KR')}`,
       text: emailBody,
-      attachments: allAttachments, // 공고별 zip 파일 첨부
     });
 
     // 최종 Gemini 호출 통계
