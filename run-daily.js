@@ -54,6 +54,8 @@ async function getOrCreateDriveFolder(drive, name, parentId) {
   const res = await drive.files.list({
     q: `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`,
     fields: 'files(id, name)',
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
   if (res.data.files.length > 0) return res.data.files[0].id;
 
@@ -64,6 +66,7 @@ async function getOrCreateDriveFolder(drive, name, parentId) {
       parents: [parentId],
     },
     fields: 'id',
+    supportsAllDrives: true,
   });
   return folder.data.id;
 }
@@ -80,6 +83,7 @@ async function uploadFileToDrive(drive, filePath, fileName, parentId) {
       body: fileStream,
     },
     fields: 'id, webViewLink',
+    supportsAllDrives: true,
   });
   return res.data;
 }
