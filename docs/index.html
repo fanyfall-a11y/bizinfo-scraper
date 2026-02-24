@@ -331,7 +331,8 @@ let activeCategory = '전체';
 let activeRegion   = '전국';  // 기본값 전국으로 시작
 let activeTarget   = 'all';
 
-let cart = [];  // { id, source, cleanTitle, url, category, regionCategory, isTarget }
+let cart = [];        // { id, source, cleanTitle, url, category, regionCategory, isTarget }
+let itemMap = {};     // id → item 전체 객체 (빠른 조회용)
 
 // ──────────────────────────────
 // 로그인
@@ -530,13 +531,18 @@ function renderItemList(items) {
     return;
   }
 
+  // itemMap에 등록 (id → item 객체)
+  items.forEach(item => { itemMap[item.id] = item; });
+
   list.innerHTML = items.map(item => {
     const inCart = cart.some(c => c.id === item.id);
     const src = SOURCE_INFO[item.source] || {};
+    // id만 넘겨서 HTML 파싱 오류 방지
+    const safeId = item.id.replace(/'/g, "\\'");
     return `
     <div class="item-card${item.isTarget?' is-target':''}${inCart?' selected':''}"
-         id="card-${item.id}" onclick="toggleCart(${JSON.stringify(item).replace(/"/g,'&quot;')})">
-      <input type="checkbox" ${inCart?'checked':''} onclick="event.stopPropagation();toggleCart(${JSON.stringify(item).replace(/"/g,'&quot;')})">
+         id="card-${item.id}" onclick="toggleCartById('${safeId}')">
+      <input type="checkbox" ${inCart?'checked':''} onclick="event.stopPropagation();toggleCartById('${safeId}')">
       <div class="item-body">
         <div class="badge-row">
           ${item.isTarget ? '<span class="badge badge-target">⭐ 추천</span>' : ''}
@@ -554,6 +560,14 @@ function renderItemList(items) {
 // ──────────────────────────────
 // 장바구니
 // ──────────────────────────────
+
+// id로 item 조회 후 토글 (HTML 인라인 onclick에서 id만 전달)
+function toggleCartById(id) {
+  const item = itemMap[id];
+  if (!item) return;
+  toggleCart(item);
+}
+
 function toggleCart(item) {
   const idx = cart.findIndex(c => c.id === item.id);
   if (idx >= 0) {
@@ -570,7 +584,8 @@ function toggleCart(item) {
 }
 
 function removeFromCart(id) {
-  cart = cart.filter(c => c.id !== id);
+  const idx = cart.findIndex(c => c.id === id);
+  if (idx >= 0) cart.splice(idx, 1);
   updateCardState(id);
   renderCart();
 }
