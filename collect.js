@@ -62,6 +62,10 @@ function extractId(url) {
     /biz_no=([0-9]+)/,
     /seq=([0-9]+)/,
     /pageIndex=[0-9]+.*?&id=([0-9]+)/,
+    /fncGoDetail\('([0-9]+)'\)/,   // semas.or.kr: javascript:fncGoDetail('52091')
+    /goDetail\('([0-9]+)'\)/,      // 유사 패턴
+    /view\.do.*?no=([0-9]+)/,
+    /bbsSeq=([0-9]+)/,
   ];
   for (const pat of patterns) {
     const m = url.match(pat);
@@ -74,6 +78,16 @@ function extractId(url) {
     hash |= 0;
   }
   return Math.abs(hash).toString(36);
+}
+
+// javascript: URL을 실제 접근 가능한 URL로 변환
+function resolveSemasUrl(rawUrl, baseUrl) {
+  // javascript:fncGoDetail('52091'); → https://www.semas.or.kr/...?bbs_cd_n=2&seq=52091
+  const m = rawUrl.match(/fncGoDetail\('([0-9]+)'\)/);
+  if (m) {
+    return `https://www.semas.or.kr/web/board/webBoardView.kmdc?bbs_cd_n=2&seq=${m[1]}`;
+  }
+  return rawUrl;
 }
 
 function isTargetAudience(title) {
@@ -318,9 +332,20 @@ async function collectSbiz(page, db) {
             if (/\d{4}[\.\-]\d{2}[\.\-]\d{2}/.test(text)) { date = text; }
           }
           if (!date) date = tds[tds.length - 1]?.innerText?.trim() || '';
-          if (title && title.length > 5) results.push({ title, url: a.href, date });
+
+          // href 또는 onclick에서 원본 URL/스크립트 추출
+          const rawHref = a.getAttribute('href') || '';
+          const rawOnclick = a.getAttribute('onclick') || '';
+          const rawUrl = rawHref || rawOnclick;
+
+          if (title && title.length > 5) results.push({ title, rawUrl, date });
         });
         return results;
+      });
+      // javascript: URL → 실제 URL 변환
+      items.forEach(item => {
+        item.url = resolveSemasUrl(item.rawUrl, url);
+        delete item.rawUrl;
       });
 
       if (items.length === 0) break;
