@@ -70,6 +70,13 @@
     }
     .item-card:hover { border-color: #a0b8f0; }
     .item-card.selected { border-color: #1a4fa0; background: #f0f5ff; }
+    .item-card.target { border-color: #f0a500; background: #fffdf0; }
+    .item-card.target.selected { border-color: #1a4fa0; background: #f0f5ff; }
+    .target-badge {
+      display: inline-block; background: #f0a500; color: white;
+      font-size: 12px; font-weight: 700; padding: 3px 10px;
+      border-radius: 20px; margin-left: 6px;
+    }
     .item-card input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; accent-color: #1a4fa0; cursor: pointer; }
     .item-info { flex: 1; }
     .item-region {
@@ -201,11 +208,15 @@
         return;
       }
 
-      list.innerHTML = items.map(item => `
-        <div class="item-card" id="card-${item.idx}" onclick="toggleSelect(${item.idx})">
+      // 타겟 공고 먼저, 기타 나중에 정렬
+      const sorted = [...items].sort((a, b) => (b.isTarget ? 1 : 0) - (a.isTarget ? 1 : 0));
+
+      list.innerHTML = sorted.map(item => `
+        <div class="item-card ${item.isTarget ? 'target' : ''}" id="card-${item.idx}" onclick="toggleSelect(${item.idx})">
           <input type="checkbox" id="chk-${item.idx}" onclick="event.stopPropagation(); toggleSelect(${item.idx})">
           <div class="item-info">
             <span class="item-region">${item.region}</span>
+            ${item.isTarget ? '<span class="target-badge">⭐ 추천</span>' : ''}
             <div class="item-title">${item.cleanTitle}</div>
             <div class="item-date">${item.date}</div>
           </div>

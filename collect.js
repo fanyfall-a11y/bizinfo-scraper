@@ -29,6 +29,33 @@ function extractRegion(title) {
   return regionMatch ? regionMatch[1] : '전국';
 }
 
+// 타겟 독자 대상 공고 여부 판별
+function isTargetAudience(title) {
+  const keywords = [
+    // 청년 관련
+    '청년', '청년창업', '청년사업자', '청년기업',
+    // 소상공인 관련
+    '소상공인', '소기업', '영세', '자영업',
+    // 1인 관련
+    '1인', '1인사업자', '1인기업', '프리랜서', '1인창업',
+    // 예비/초기창업자
+    '예비창업', '초기창업', '예비창업자', '초기창업자',
+    '창업준비', '창업예정',
+    // 창업 연차
+    '3년 미만', '3년미만', '5년 미만', '5년미만',
+    '7년 미만', '7년미만', '10년 미만', '10년미만',
+    '창업 3년', '창업3년', '창업 5년', '창업5년',
+    '창업 7년', '창업7년',
+    // 스타트업/벤처
+    '스타트업', '벤처', '창업기업', '신생기업',
+    // 중소/소규모
+    '중소기업', '소규모', '소형',
+    // 일반 창업
+    '창업자', '창업지원', '창업육성', '창업생태계',
+  ];
+  return keywords.some(kw => title.includes(kw));
+}
+
 async function collectList(page, maxPages = 15) {
   const db = loadDB();
   const newItems = [];
@@ -103,7 +130,7 @@ async function main() {
       return;
     }
 
-    // 목록에 지역 정보 추가
+    // 목록에 지역 정보 + 타겟 여부 추가
     const itemsWithRegion = newItems.map((item, idx) => ({
       idx: idx + 1,
       title: item.title,
@@ -111,7 +138,12 @@ async function main() {
       date: item.date,
       region: extractRegion(item.title),
       cleanTitle: item.title.replace(/^\[[가-힣]+\]\s*/, ''),
+      isTarget: isTargetAudience(item.title), // 타겟 독자 대상 여부
     }));
+
+    const targetItems = itemsWithRegion.filter(i => i.isTarget);
+    const otherItems = itemsWithRegion.filter(i => !i.isTarget);
+    log(`🎯 타겟 공고: ${targetItems.length}건 / 기타: ${otherItems.length}건`);
 
     // docs/today-list.json 저장 (웹페이지에서 읽을 파일)
     fs.mkdirSync(path.dirname(TODAY_LIST_FILE), { recursive: true });
@@ -135,22 +167,39 @@ async function main() {
     const TO_EMAIL = process.env.TO_EMAIL || 'nagairams1@gmail.com';
     const pageUrl = 'https://fanyfall-a11y.github.io/bizinfo-scraper/';
 
-    let emailBody = `📋 오늘 신규 지원사업 공고 ${newItems.length}건이 수집됐어요!\n\n`;
-    emailBody += `👉 아래 페이지에서 원하는 공고를 선택하고 콘텐츠를 생성하세요:\n`;
-    emailBody += `${pageUrl}\n\n`;
+    let emailBody = `📋 오늘 신규 지원사업 공고 ${newItems.length}건 수집 완료!\n`;
+    emailBody += `🎯 타겟 공고 ${targetItems.length}건 / 기타 ${otherItems.length}건\n\n`;
+    emailBody += `👉 공고 선택 페이지:\n${pageUrl}\n\n`;
     emailBody += `${'='.repeat(50)}\n\n`;
 
-    itemsWithRegion.forEach(item => {
-      emailBody += `【${item.idx}】 [${item.region}] ${item.cleanTitle}\n`;
-      emailBody += `📅 ${item.date}\n`;
-      emailBody += `🔗 ${item.url}\n`;
-      emailBody += `${'-'.repeat(40)}\n\n`;
-    });
+    // ★ 타겟 공고 먼저 (강조)
+    if (targetItems.length > 0) {
+      emailBody += `🎯 ★ 추천 공고 (청년·소상공인·창업자 대상) ${targetItems.length}건\n`;
+      emailBody += `${'='.repeat(50)}\n\n`;
+      targetItems.forEach(item => {
+        emailBody += `⭐【${item.idx}】 [${item.region}] ${item.cleanTitle}\n`;
+        emailBody += `📅 ${item.date}\n`;
+        emailBody += `🔗 ${item.url}\n`;
+        emailBody += `${'-'.repeat(40)}\n\n`;
+      });
+    }
+
+    // 기타 공고
+    if (otherItems.length > 0) {
+      emailBody += `📁 기타 공고 ${otherItems.length}건\n`;
+      emailBody += `${'='.repeat(50)}\n\n`;
+      otherItems.forEach(item => {
+        emailBody += `【${item.idx}】 [${item.region}] ${item.cleanTitle}\n`;
+        emailBody += `📅 ${item.date}\n`;
+        emailBody += `🔗 ${item.url}\n`;
+        emailBody += `${'-'.repeat(40)}\n\n`;
+      });
+    }
 
     await transporter.sendMail({
       from: `"나혼자창업 자동수집" <${process.env.GMAIL_USER}>`,
       to: TO_EMAIL,
-      subject: `📋 오늘 신규 공고 ${newItems.length}건 - 선택 후 콘텐츠 생성하세요 (${new Date().toLocaleDateString('ko-KR')})`,
+      subject: `🎯 추천 ${targetItems.length}건 포함 오늘 신규 공고 ${newItems.length}건 (${new Date().toLocaleDateString('ko-KR')})`,
       text: emailBody,
     });
 
