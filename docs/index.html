@@ -542,17 +542,20 @@ function renderItemList(items) {
   }
 
   // itemMap에 등록 (id → item 객체)
-  items.forEach(item => { itemMap[item.id] = item; });
+  items.forEach((item, idx) => {
+    // 안전한 DOM id: 인덱스 기반으로 부여 (특수문자 문제 원천 차단)
+    item._domId = 'item_' + idx;
+    itemMap[item._domId] = item;
+  });
 
   list.innerHTML = items.map(item => {
     const inCart = cart.some(c => c.id === item.id);
     const src = SOURCE_INFO[item.source] || {};
-    // id만 넘겨서 HTML 파싱 오류 방지
-    const safeId = item.id.replace(/'/g, "\\'");
+    const domId = item._domId;
     return `
     <div class="item-card${item.isTarget?' is-target':''}${inCart?' selected':''}"
-         id="card-${item.id}" onclick="toggleCartById('${safeId}')">
-      <input type="checkbox" ${inCart?'checked':''} onclick="event.stopPropagation();toggleCartById('${safeId}')">
+         id="card-${domId}" onclick="toggleCartById('${domId}')">
+      <input type="checkbox" ${inCart?'checked':''} onclick="event.stopPropagation();toggleCartById('${domId}')">
       <div class="item-body">
         <div class="badge-row">
           ${item.isTarget ? '<span class="badge badge-target">⭐ 추천</span>' : ''}
@@ -600,9 +603,22 @@ function removeFromCart(id) {
   renderCart();
 }
 
+// 장바구니 인덱스로 삭제 (renderCart에서 onclick에 사용)
+function removeFromCartByIdx(idx) {
+  if (idx < 0 || idx >= cart.length) return;
+  const item = cart[idx];
+  cart.splice(idx, 1);
+  updateCardState(item.id);
+  renderCart();
+}
+
 function updateCardState(id) {
   const inCart = cart.some(c => c.id === id);
-  const card = document.getElementById(`card-${id}`);
+  // _domId로 카드 찾기 (domId는 itemMap에서 역탐색)
+  const item = Object.values(itemMap).find(i => i.id === id);
+  const domId = item?._domId;
+  if (!domId) return;
+  const card = document.getElementById(`card-${domId}`);
   const chk  = card?.querySelector('input[type=checkbox]');
   if (card) card.classList.toggle('selected', inCart);
   if (chk)  chk.checked = inCart;
@@ -623,11 +639,12 @@ function renderCart() {
     return;
   }
 
-  body.innerHTML = cart.map(item => {
+  body.innerHTML = cart.map((item, idx) => {
     const src = SOURCE_INFO[item.source] || {};
+    const cartDomId = 'cartitem_' + idx;
     return `
-    <div class="cart-item" id="cartitem-${item.id}">
-      <button class="cart-remove" onclick="removeFromCart('${item.id}')">✕</button>
+    <div class="cart-item" id="${cartDomId}">
+      <button class="cart-remove" onclick="removeFromCartByIdx(${idx})">✕</button>
       <div class="cart-item-badges">
         ${item.isTarget ? '<span class="badge badge-target">⭐</span>' : ''}
         <span class="badge badge-cat">📂 ${item.category||'사업화'}</span>

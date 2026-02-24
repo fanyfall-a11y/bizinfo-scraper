@@ -58,17 +58,22 @@ function extractId(url) {
   const patterns = [
     /pblancId=([A-Z0-9_]+)/,
     /pbancSn=([0-9]+)/,
-    /ancmId=([0-9]+)/,
+    /ancmId=([A-Z0-9_]+)/,
     /biz_no=([0-9]+)/,
     /seq=([0-9]+)/,
-    /id=([0-9]+)/,
+    /pageIndex=[0-9]+.*?&id=([0-9]+)/,
   ];
   for (const pat of patterns) {
     const m = url.match(pat);
     if (m) return m[1];
   }
-  // URL 해시로 대체
-  return Buffer.from(url).toString('base64').slice(0, 20);
+  // URL을 안전한 영숫자 해시로 변환 (특수문자 제거)
+  let hash = 0;
+  for (let i = 0; i < url.length; i++) {
+    hash = ((hash << 5) - hash) + url.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function isTargetAudience(title) {
