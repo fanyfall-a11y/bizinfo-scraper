@@ -1,11 +1,15 @@
-name: 비즈인포 일일 자동 수집 및 메일 발송
+name: 콘텐츠 생성 (선택한 공고)
 
 on:
-  # 기존 방식 비활성화 (collect.yml + generate.yml로 분리됨)
-  workflow_dispatch: # 수동 실행만 가능
+  workflow_dispatch:
+    inputs:
+      target_urls:
+        description: '생성할 공고 URL (쉼표로 구분, 최대 3개)'
+        required: true
+        type: string
 
 jobs:
-  collect-and-send:
+  generate:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,20 +26,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
 
-      - name: Chrome 설치 (Puppeteer용)
+      - name: Chrome 설치
         run: |
           sudo apt-get install -y chromium-browser
 
       - name: 의존성 설치
         run: npm install
 
-      - name: nodemailer 설치
-        run: npm install nodemailer
-
-      - name: 일일 수집 + 메일 발송 실행
+      - name: 콘텐츠 생성
         env:
+          TARGET_URLS: ${{ inputs.target_urls }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TO_EMAIL: nagairams1@gmail.com
@@ -44,15 +45,15 @@ jobs:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           GOOGLE_OAUTH_TOKENS: ${{ secrets.GOOGLE_OAUTH_TOKENS }}
-        run: node run-daily.js
+        run: node generate.js
 
-      - name: 수집 기록 저장 (중복 방지용)
+      - name: 수집 기록 저장
         if: always()
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add collected_ids.json || true
-          git diff --staged --quiet || git commit -m "자동 수집 기록 업데이트 $(date +'%Y-%m-%d')"
+          git diff --staged --quiet || git commit -m "콘텐츠 생성 기록 업데이트 $(date +'%Y-%m-%d')"
           git push || true
 
       - name: 로그 확인

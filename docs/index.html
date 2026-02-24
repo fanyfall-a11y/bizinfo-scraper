@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>나혼자창업 - 공고 선택</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; background: #f0f4ff; color: #222; }
+
+    /* 로그인 화면 */
+    #login-screen {
+      position: fixed; inset: 0;
+      background: linear-gradient(135deg, #0d2d6e, #1a4fa0);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    .login-box {
+      background: white; border-radius: 20px; padding: 48px 40px;
+      width: 360px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .login-box h1 { font-size: 22px; color: #1a4fa0; margin-bottom: 8px; }
+    .login-box p { font-size: 14px; color: #888; margin-bottom: 28px; }
+    .login-box input {
+      width: 100%; padding: 14px 16px; border: 2px solid #dde4f5;
+      border-radius: 10px; font-size: 16px; margin-bottom: 14px;
+      outline: none; text-align: center; letter-spacing: 4px;
+    }
+    .login-box input:focus { border-color: #1a4fa0; }
+    .login-btn {
+      width: 100%; padding: 14px; background: #1a4fa0; color: white;
+      border: none; border-radius: 10px; font-size: 16px; font-weight: 700;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .login-btn:hover { background: #0d2d6e; }
+    .login-error { color: #e53e3e; font-size: 14px; margin-top: 10px; display: none; }
+
+    /* 메인 화면 */
+    #main-screen { display: none; }
+    header {
+      background: linear-gradient(90deg, #0d2d6e, #1a4fa0);
+      padding: 20px 24px; color: white;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    header h1 { font-size: 20px; font-weight: 800; }
+    header span { font-size: 14px; opacity: 0.8; }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
+
+    .info-bar {
+      background: white; border-radius: 12px; padding: 16px 20px;
+      margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+    .info-bar .date { font-size: 15px; color: #555; }
+    .info-bar .count { font-size: 15px; font-weight: 700; color: #1a4fa0; }
+
+    .empty-msg {
+      text-align: center; padding: 60px 20px; color: #888;
+      background: white; border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+    .empty-msg p { font-size: 18px; margin-bottom: 8px; }
+    .empty-msg small { font-size: 14px; }
+
+    .item-card {
+      background: white; border-radius: 14px; padding: 18px 20px;
+      margin-bottom: 12px; display: flex; align-items: flex-start; gap: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06); cursor: pointer;
+      border: 2px solid transparent; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .item-card:hover { border-color: #a0b8f0; }
+    .item-card.selected { border-color: #1a4fa0; background: #f0f5ff; }
+    .item-card input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; accent-color: #1a4fa0; cursor: pointer; }
+    .item-info { flex: 1; }
+    .item-region {
+      display: inline-block; background: #1a4fa0; color: white;
+      font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-bottom: 6px;
+    }
+    .item-title { font-size: 15px; font-weight: 600; line-height: 1.5; color: #1a2a4a; }
+    .item-date { font-size: 13px; color: #999; margin-top: 4px; }
+
+    /* 하단 고정 버튼 */
+    .bottom-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: white; border-top: 1px solid #e0e8f8;
+      padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+    }
+    .selected-count { font-size: 15px; color: #555; }
+    .selected-count strong { color: #1a4fa0; }
+    .generate-btn {
+      padding: 14px 28px; background: #1a4fa0; color: white;
+      border: none; border-radius: 12px; font-size: 16px; font-weight: 700;
+      cursor: pointer; transition: background 0.2s; opacity: 0.4; pointer-events: none;
+    }
+    .generate-btn.active { opacity: 1; pointer-events: auto; }
+    .generate-btn.active:hover { background: #0d2d6e; }
+
+    /* 로딩/완료 모달 */
+    #modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      display: none; align-items: center; justify-content: center; z-index: 200;
+    }
+    #modal.show { display: flex; }
+    .modal-box {
+      background: white; border-radius: 20px; padding: 40px;
+      text-align: center; width: 320px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .modal-box .icon { font-size: 48px; margin-bottom: 16px; }
+    .modal-box h2 { font-size: 20px; margin-bottom: 10px; color: #1a2a4a; }
+    .modal-box p { font-size: 14px; color: #666; line-height: 1.6; }
+    .modal-close {
+      margin-top: 20px; padding: 12px 28px; background: #1a4fa0; color: white;
+      border: none; border-radius: 10px; font-size: 15px; cursor: pointer; display: none;
+    }
+
+    .pb-80 { padding-bottom: 80px; }
+  </style>
+</head>
+<body>
+
+<!-- 로그인 화면 -->
+<div id="login-screen">
+  <div class="login-box">
+    <h1>🔷 나혼자창업</h1>
+    <p>공고 선택 시스템</p>
+    <input type="password" id="pw-input" placeholder="비밀번호" onkeydown="if(event.key==='Enter')login()">
+    <button class="login-btn" onclick="login()">로그인</button>
+    <div class="login-error" id="login-error">비밀번호가 틀렸습니다.</div>
+  </div>
+</div>
+
+<!-- 메인 화면 -->
+<div id="main-screen">
+  <header>
+    <h1>🔷 나혼자창업 공고 선택</h1>
+    <span id="header-date"></span>
+  </header>
+
+  <div class="container pb-80">
+    <div class="info-bar">
+      <span class="date" id="today-date"></span>
+      <span class="count" id="item-count"></span>
+    </div>
+    <div id="item-list"></div>
+  </div>
+
+  <div class="bottom-bar">
+    <span class="selected-count"><strong id="sel-count">0</strong>개 선택됨</span>
+    <button class="generate-btn" id="gen-btn" onclick="startGenerate()">🚀 콘텐츠 생성</button>
+  </div>
+</div>
+
+<!-- 모달 -->
+<div id="modal">
+  <div class="modal-box">
+    <div class="icon" id="modal-icon">⏳</div>
+    <h2 id="modal-title">GitHub Actions 실행 중...</h2>
+    <p id="modal-desc">선택한 공고의 콘텐츠를 생성하고 있어요.<br>완료되면 이메일로 알려드려요!</p>
+    <button class="modal-close" id="modal-close-btn" onclick="closeModal()">확인</button>
+  </div>
+</div>
+
+<script>
+  // ⚠️ 비밀번호 설정 (여기서 변경)
+  const PASSWORD = 'bizinfo2026';
+
+  // GitHub 정보
+  const GITHUB_OWNER = 'fanyfall-a11y';
+  const GITHUB_REPO = 'bizinfo-scraper';
+  const GITHUB_TOKEN = ''; // GitHub Secret으로 관리 불가 → 아래 설명 참고
+
+  let items = [];
+  let selected = new Set();
+
+  function login() {
+    const pw = document.getElementById('pw-input').value;
+    if (pw === PASSWORD) {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('main-screen').style.display = 'block';
+      loadList();
+    } else {
+      document.getElementById('login-error').style.display = 'block';
+    }
+  }
+
+  async function loadList() {
+    try {
+      const res = await fetch('today-list.json?t=' + Date.now());
+      const data = await res.json();
+
+      document.getElementById('header-date').textContent = data.date;
+      document.getElementById('today-date').textContent = `📅 ${data.date} 수집`;
+      document.getElementById('item-count').textContent = `총 ${data.items.length}건`;
+
+      items = data.items;
+      const list = document.getElementById('item-list');
+
+      if (items.length === 0) {
+        list.innerHTML = `<div class="empty-msg"><p>😴 오늘 신규 공고가 없어요</p><small>내일 다시 확인해주세요</small></div>`;
+        return;
+      }
+
+      list.innerHTML = items.map(item => `
+        <div class="item-card" id="card-${item.idx}" onclick="toggleSelect(${item.idx})">
+          <input type="checkbox" id="chk-${item.idx}" onclick="event.stopPropagation(); toggleSelect(${item.idx})">
+          <div class="item-info">
+            <span class="item-region">${item.region}</span>
+            <div class="item-title">${item.cleanTitle}</div>
+            <div class="item-date">${item.date}</div>
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      document.getElementById('item-list').innerHTML = `<div class="empty-msg"><p>⚠️ 목록을 불러올 수 없어요</p><small>새벽 수집이 완료되지 않았을 수 있어요</small></div>`;
+    }
+  }
+
+  function toggleSelect(idx) {
+    if (selected.has(idx)) {
+      selected.delete(idx);
+      document.getElementById(`card-${idx}`).classList.remove('selected');
+      document.getElementById(`chk-${idx}`).checked = false;
+    } else {
+      if (selected.size >= 3) {
+        alert('최대 3개까지 선택 가능해요!');
+        return;
+      }
+      selected.add(idx);
+      document.getElementById(`card-${idx}`).classList.add('selected');
+      document.getElementById(`chk-${idx}`).checked = true;
+    }
+    updateBtn();
+  }
+
+  function updateBtn() {
+    const cnt = selected.size;
+    document.getElementById('sel-count').textContent = cnt;
+    const btn = document.getElementById('gen-btn');
+    btn.classList.toggle('active', cnt > 0);
+  }
+
+  async function startGenerate() {
+    if (selected.size === 0) return;
+
+    const selectedItems = items.filter(item => selected.has(item.idx));
+    const urls = selectedItems.map(item => item.url).join(',');
+
+    // GitHub Actions 트리거
+    const token = prompt('GitHub Personal Access Token을 입력해주세요:\n(Settings → Developer settings → Personal access tokens)');
+    if (!token) return;
+
+    showModal('⏳', 'GitHub Actions 실행 중...', '선택한 공고의 콘텐츠를 생성하고 있어요.\n완료되면 이메일로 알려드려요!');
+
+    try {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/generate.yml/dispatches`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: { target_urls: urls }
+        })
+      });
+
+      if (res.ok || res.status === 204) {
+        showModal('✅', '생성 요청 완료!', `${selectedItems.length}건의 콘텐츠 생성이 시작됐어요.\n5~10분 후 이메일로 드라이브 링크가 전송됩니다.`, true);
+      } else {
+        const err = await res.json();
+        showModal('❌', '오류 발생', `GitHub API 오류: ${err.message}`, true);
+      }
+    } catch (e) {
+      showModal('❌', '오류 발생', e.message, true);
+    }
+  }
+
+  function showModal(icon, title, desc, showClose = false) {
+    document.getElementById('modal-icon').textContent = icon;
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-desc').textContent = desc;
+    document.getElementById('modal-close-btn').style.display = showClose ? 'inline-block' : 'none';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+  }
+</script>
+</body>
+</html>
