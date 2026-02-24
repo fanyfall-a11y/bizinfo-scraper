@@ -541,17 +541,17 @@ function renderItemList(items) {
     return;
   }
 
-  // itemMap에 등록 (id → item 객체)
+  // itemMap 초기화 후 재등록 (렌더링마다 새로 구성)
+  itemMap = {};
   items.forEach((item, idx) => {
-    // 안전한 DOM id: 인덱스 기반으로 부여 (특수문자 문제 원천 차단)
-    item._domId = 'item_' + idx;
-    itemMap[item._domId] = item;
+    const domId = 'item_' + idx;
+    itemMap[domId] = item;
   });
 
-  list.innerHTML = items.map(item => {
+  list.innerHTML = items.map((item, idx) => {
     const inCart = cart.some(c => c.id === item.id);
     const src = SOURCE_INFO[item.source] || {};
-    const domId = item._domId;
+    const domId = 'item_' + idx;
     return `
     <div class="item-card${item.isTarget?' is-target':''}${inCart?' selected':''}"
          id="card-${domId}" onclick="toggleCartById('${domId}')">
@@ -614,9 +614,8 @@ function removeFromCartByIdx(idx) {
 
 function updateCardState(id) {
   const inCart = cart.some(c => c.id === id);
-  // _domId로 카드 찾기 (domId는 itemMap에서 역탐색)
-  const item = Object.values(itemMap).find(i => i.id === id);
-  const domId = item?._domId;
+  // itemMap에서 item.id가 일치하는 domId 역탐색
+  const domId = Object.entries(itemMap).find(([, v]) => v.id === id)?.[0];
   if (!domId) return;
   const card = document.getElementById(`card-${domId}`);
   const chk  = card?.querySelector('input[type=checkbox]');
