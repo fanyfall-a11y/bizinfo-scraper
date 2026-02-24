@@ -39,14 +39,15 @@ function log(msg) {
   fs.appendFileSync(LOG_FILE, line + '\n', 'utf8');
 }
 
-// 구글 드라이브 인증
+// 구글 드라이브 인증 (OAuth 방식)
 function getDriveAuth() {
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
-  return auth;
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const tokens = JSON.parse(process.env.GOOGLE_OAUTH_TOKENS);
+
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.setCredentials(tokens);
+  return oauth2Client;
 }
 
 // 드라이브에 폴더 생성 (없으면 만들고, 있으면 기존 ID 반환)
