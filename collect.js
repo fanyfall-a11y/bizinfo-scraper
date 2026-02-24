@@ -27,10 +27,10 @@ const SOURCES = {
   },
   sbiz: {
     id: 'sbiz',
-    name: '소상공인마당',
+    name: '소상공인진흥공단',
     icon: '🏪',
     color: '#2ecc71',
-    url: 'https://www.sbiz.or.kr/sup/biz/bizSupportList.do',
+    url: 'https://www.semas.or.kr/web/board/webBoardList.kmdc?bbs_cd_n=2&schStr=',
   },
   smtech: {
     id: 'smtech',
@@ -207,7 +207,7 @@ async function collectBizinfo(page, db) {
   return rawItems;
 }
 
-// 2. K-Startup
+// 2. K-Startup - 실제 구조: board_list-wrap > ul > li, a[href*=go_view], p.tit, p.date
 async function collectKStartup(page, db) {
   log('📡 [K-Startup] 수집 시작...');
   const BASE_URL = SOURCES.kstartup.url;
@@ -217,35 +217,35 @@ async function collectKStartup(page, db) {
   while (currentPage <= 10) {
     try {
       const url = currentPage === 1 ? BASE_URL : `${BASE_URL}&schPage=${currentPage}`;
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await new Promise(r => setTimeout(r, 2000));
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+      await new Promise(r => setTimeout(r, 2500));
 
       const items = await page.evaluate(() => {
         const results = [];
-        // K-Startup 공고 목록 선택자
-        const cards = document.querySelectorAll('.card-list li, .biz-list li, ul.list-type li');
-        cards.forEach(card => {
-          const a = card.querySelector('a');
-          const titleEl = card.querySelector('.title, .tit, h3, h4, .card-title');
-          const dateEl = card.querySelector('.date, .period, .deadline, .end-date');
-          if (!a || !titleEl) return;
-          const title = titleEl.innerText.trim();
-          const href = a.href;
-          const date = dateEl?.innerText?.trim() || '';
-          if (title && href && title.length > 5) results.push({ title, url: href, date });
-        });
+        // K-Startup 실제 구조: board_list-wrap 안의 li 항목
+        document.querySelectorAll('#bizPbancList li, .board_list-wrap li').forEach(li => {
+          // go_view(ID) 패턴의 a 태그
+          const a = li.querySelector('a[href*="go_view"], a[href*="bizpbanc"]');
+          if (!a) return;
 
-        // 대안 선택자
-        if (results.length === 0) {
-          document.querySelectorAll('table tbody tr').forEach(tr => {
-            const a = tr.querySelector('a');
-            if (!a) return;
-            const title = a.innerText.trim();
-            const tds = tr.querySelectorAll('td');
-            const date = tds[tds.length - 1]?.innerText?.trim() || '';
-            if (title && title.length > 5) results.push({ title, url: a.href, date });
-          });
-        }
+          // 제목: p.tit 또는 .tit_wrap p.tit
+          const titleEl = li.querySelector('p.tit, .tit_wrap p, .tit');
+          const title = titleEl ? titleEl.innerText.trim() : a.innerText.trim();
+
+          // 날짜: p.date 또는 .date
+          const dateEl = li.querySelector('p.date, .date, .period');
+          const date = dateEl ? dateEl.innerText.trim() : '';
+
+          // URL 구성: go_view(ID) → ?schM=view&pbancSn=ID
+          let href = a.href;
+          const goViewMatch = a.getAttribute('onclick')?.match(/go_view\((\d+)\)/) ||
+                              a.getAttribute('href')?.match(/go_view\((\d+)\)/);
+          if (goViewMatch) {
+            href = `https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do?schM=view&pbancSn=${goViewMatch[1]}`;
+          }
+
+          if (title && title.length > 5) results.push({ title, url: href, date });
+        });
         return results;
       });
 
@@ -263,7 +263,7 @@ async function collectKStartup(page, db) {
       if (newCount === 0) break;
 
       const hasNext = await page.evaluate(cp => {
-        const links = Array.from(document.querySelectorAll('.pagination a, .paging a'));
+        const links = Array.from(document.querySelectorAll('.pagination a, .paging a, .page_btn'));
         return links.some(a => a.innerText.trim() === String(cp + 1));
       }, currentPage);
       if (!hasNext) break;
@@ -277,16 +277,16 @@ async function collectKStartup(page, db) {
   return rawItems;
 }
 
-// 3. 소상공인마당
+// 3. 소상공인진흥공단 - 실제 구조: table tbody tr, a.board_title or a
 async function collectSbiz(page, db) {
-  log('📡 [소상공인마당] 수집 시작...');
+  log('📡 [소상공인진흥공단] 수집 시작...');
   const BASE_URL = SOURCES.sbiz.url;
   const rawItems = [];
   let currentPage = 1;
 
   while (currentPage <= 10) {
     try {
-      const url = currentPage === 1 ? BASE_URL : `${BASE_URL}?pageIndex=${currentPage}`;
+      const url = currentPage === 1 ? BASE_URL : `${BASE_URL}&pageIndex=${currentPage}`;
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await new Promise(r => setTimeout(r, 2000));
 
@@ -296,20 +296,16 @@ async function collectSbiz(page, db) {
           const a = tr.querySelector('a');
           if (!a) return;
           const title = a.innerText.trim();
-          const tds = tr.querySelectorAll('td');
-          const date = tds[tds.length - 1]?.innerText?.trim() || tds[tds.length - 2]?.innerText?.trim() || '';
+          const tds = Array.from(tr.querySelectorAll('td'));
+          // 날짜 컬럼 찾기 (날짜 형식 포함된 td)
+          let date = '';
+          for (const td of tds) {
+            const text = td.innerText.trim();
+            if (/\d{4}[\.\-]\d{2}[\.\-]\d{2}/.test(text)) { date = text; }
+          }
+          if (!date) date = tds[tds.length - 1]?.innerText?.trim() || '';
           if (title && title.length > 5) results.push({ title, url: a.href, date });
         });
-
-        if (results.length === 0) {
-          document.querySelectorAll('.list-area li, .support-list li').forEach(li => {
-            const a = li.querySelector('a');
-            const dateEl = li.querySelector('.date, .period');
-            if (!a) return;
-            const title = a.innerText.trim();
-            if (title && title.length > 5) results.push({ title, url: a.href, date: dateEl?.innerText?.trim() || '' });
-          });
-        }
         return results;
       });
 
@@ -323,25 +319,25 @@ async function collectSbiz(page, db) {
         newCount++;
       }
 
-      log(`  [소상공인마당] 페이지 ${currentPage}: ${newCount}개 신규`);
+      log(`  [소상공인진흥공단] 페이지 ${currentPage}: ${newCount}개 신규`);
       if (newCount === 0) break;
 
       const hasNext = await page.evaluate(cp => {
-        const links = Array.from(document.querySelectorAll('.paging a, .pagination a'));
+        const links = Array.from(document.querySelectorAll('.paging a, .pagination a, .board_paging a'));
         return links.some(a => a.innerText.trim() === String(cp + 1));
       }, currentPage);
       if (!hasNext) break;
       currentPage++;
     } catch (e) {
-      log(`  [소상공인마당] 페이지 ${currentPage} 오류: ${e.message}`);
+      log(`  [소상공인진흥공단] 페이지 ${currentPage} 오류: ${e.message}`);
       break;
     }
   }
-  log(`✅ [소상공인마당] 총 ${rawItems.length}건 수집`);
+  log(`✅ [소상공인진흥공단] 총 ${rawItems.length}건 수집`);
   return rawItems;
 }
 
-// 4. 중소기업기술
+// 4. 중소기업기술(smtech) - 실제 구조: table tbody tr, a.board, td.ac (날짜)
 async function collectSmtech(page, db) {
   log('📡 [중소기업기술] 수집 시작...');
   const BASE_URL = SOURCES.smtech.url;
@@ -357,23 +353,20 @@ async function collectSmtech(page, db) {
       const items = await page.evaluate(() => {
         const results = [];
         document.querySelectorAll('table tbody tr').forEach(tr => {
-          const a = tr.querySelector('a');
+          // smtech는 a.board 클래스로 공고 링크 표시
+          const a = tr.querySelector('a.board');
           if (!a) return;
           const title = a.innerText.trim();
-          const tds = tr.querySelectorAll('td');
-          const date = tds[tds.length - 1]?.innerText?.trim() || '';
-          if (title && title.length > 5) results.push({ title, url: a.href, date });
+          // 날짜: 형식 "YYYY. MM. DD ~ YYYY. MM. DD" 인 td.ac
+          const dateTds = Array.from(tr.querySelectorAll('td.ac'));
+          let date = '';
+          for (const td of dateTds) {
+            const text = td.innerText.trim();
+            if (/\d{4}\./.test(text)) { date = text; break; }
+          }
+          const href = a.href.startsWith('http') ? a.href : `https://www.smtech.go.kr${a.getAttribute('href')}`;
+          if (title && title.length > 5) results.push({ title, url: href, date });
         });
-
-        if (results.length === 0) {
-          document.querySelectorAll('.board-list li, .notice-list li').forEach(li => {
-            const a = li.querySelector('a');
-            const dateEl = li.querySelector('.date');
-            if (!a) return;
-            const title = a.innerText.trim();
-            if (title && title.length > 5) results.push({ title, url: a.href, date: dateEl?.innerText?.trim() || '' });
-          });
-        }
         return results;
       });
 

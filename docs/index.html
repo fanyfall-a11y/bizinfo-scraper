@@ -363,15 +363,39 @@ async function loadAllData() {
     dates.push(d.toISOString().slice(0, 10));
   }
 
+  // daily/ 폴더에서 날짜별 파일 로드 시도
   const results = await Promise.all(dates.map(async date => {
     try {
       const res = await fetch(`daily/${date}.json?t=${Date.now()}`);
-      if (res.ok) return { date, data: await res.json() };
+      if (res.ok) {
+        const data = await res.json();
+        // sources 구조가 없으면 today-list.json 구버전 포맷 변환
+        if (!data.sources && data.items) {
+          data.sources = { bizinfo: { id:'bizinfo', name:'기업마당', icon:'🏢', color:'#1a4fa0', count: data.items.length, targetCount: data.targetCount||0, items: data.items } };
+        }
+        return { date, data };
+      }
     } catch {}
     return null;
   }));
 
   results.forEach(r => { if (r) allData[r.date] = r.data; });
+
+  // daily/ 에 없으면 today-list.json 폴백
+  if (Object.keys(allData).length === 0) {
+    try {
+      const res = await fetch(`today-list.json?t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.date) {
+          if (!data.sources && data.items) {
+            data.sources = { bizinfo: { id:'bizinfo', name:'기업마당', icon:'🏢', color:'#1a4fa0', count: data.items.length, targetCount: data.targetCount||0, items: data.items } };
+          }
+          allData[data.date] = data;
+        }
+      }
+    } catch {}
+  }
 
   renderDateTabs(dates);
 
