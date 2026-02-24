@@ -462,6 +462,20 @@ async function generateMent(item, browser) {
 - 자연스럽고 담백하게
 - 복사 붙여넣기 바로 가능하게 완성형으로 작성
 제목:
+본문:
+
+---인스타그램---
+[작성 지침]
+- 전체 300~500자
+- 첫 1~2줄이 핵심: 스크롤 멈추게 하는 후킹 문장 (이모지 1~2개)
+- 공백 줄로 단락 구분
+- 핵심 정보만: 대상 / 지원내용 / 신청기간
+- 마지막 줄: "📎 자세한 내용은 프로필 링크 참고"
+- 해시태그 15개: 본문과 공백 한 줄 분리, 관련 키워드 위주
+- 이모지는 줄 앞에만, 과하게 쓰지 말 것
+- AI 말투 절대 금지: 감탄사, 정형화된 인사말 사용 금지
+- 자연스럽고 담백하게
+- 복사 붙여넣기 바로 가능하게 완성형으로 작성
 본문:`;
 
     // 1차 호출: 초안 생성
@@ -482,6 +496,7 @@ async function generateMent(item, browser) {
 1. AI 말투 제거: "안녕하세요!", "오늘은 ~에 대해 알아보겠습니다", "~하시면 됩니다!" 등 → 자연스러운 문장으로 교체
 2. 할루시네이션 방지: 공고 원문에 없는 수치나 정보가 추가되어 있으면 삭제하고 "공고 원문을 확인해주세요"로 대체
 3. 중복 콘텐츠 방지: 네이버/티스토리/블로그스팟 글이 너무 비슷하면 도입부와 마무리 문장을 다르게 수정
+4. 인스타그램: 첫 줄 후킹이 약하면 더 임팩트 있게 수정, 해시태그 15개 확인
 4. 공고명, 신청기간, 지원내용은 원문 그대로 유지 (변경 금지)
 
 [공고 원문 핵심]
@@ -509,7 +524,8 @@ ${firstDraft}
     const amountCardMatch = text.match(/---지원내용_카드용---([\s\S]*?)---네이버블로그---/);
     const naverMatch = text.match(/---네이버블로그---([\s\S]*?)---티스토리---/);
     const tistoryMatch = text.match(/---티스토리---([\s\S]*?)---블로그스팟---/);
-    const blogspotMatch = text.match(/---블로그스팟---([\s\S]*?)$/);
+    const blogspotMatch = text.match(/---블로그스팟---([\s\S]*?)---인스타그램---/);
+    const instaMatch = text.match(/---인스타그램---([\s\S]*?)$/);
 
     const fullTarget = targetMatch ? targetMatch[1].trim() : hwpTarget || '공고 원문을 확인해주세요.';
     const fullAmount = amountMatch ? amountMatch[1].trim() : hwpAmount || item.amount || '공고 원문을 확인해주세요.';
@@ -523,6 +539,7 @@ ${firstDraft}
       naver: naverMatch ? naverMatch[1].trim() : '네이버 블로그 글 생성 실패. 공고 원문을 확인해주세요.',
       tistory: tistoryMatch ? tistoryMatch[1].trim() : '티스토리 글 생성 실패. 공고 원문을 확인해주세요.',
       blogspot: blogspotMatch ? blogspotMatch[1].trim() : '블로그스팟 글 생성 실패. 공고 원문을 확인해주세요.',
+      insta: instaMatch ? instaMatch[1].trim() : '인스타그램 글 생성 실패. 공고 원문을 확인해주세요.',
     };
   } catch (e) {
     log(`Gemini 오류: ${e.message}`);
@@ -537,6 +554,7 @@ ${firstDraft}
       naver: '네이버 블로그 글 생성 실패.',
       tistory: '티스토리 글 생성 실패.',
       blogspot: '블로그스팟 글 생성 실패.',
+      insta: '인스타그램 글 생성 실패.',
     };
   }
 }
@@ -1018,6 +1036,7 @@ async function main() {
       item.aiNaver = geminiResult.naver;
       item.aiTistory = geminiResult.tistory;
       item.aiBlogspot = geminiResult.blogspot;
+      item.aiInsta = geminiResult.insta;
 
       // 카드 4장 생성
       try {
@@ -1038,6 +1057,7 @@ async function main() {
       fs.writeFileSync(path.join(itemDir, '05_네이버블로그.txt'), item.aiNaver, 'utf8');
       fs.writeFileSync(path.join(itemDir, '06_티스토리.txt'), item.aiTistory, 'utf8');
       fs.writeFileSync(path.join(itemDir, '07_블로그스팟.txt'), item.aiBlogspot, 'utf8');
+      fs.writeFileSync(path.join(itemDir, '08_인스타그램.txt'), item.aiInsta, 'utf8');
 
       // 이메일 본문
       emailBody += `【${i + 1}】 [${region}] ${item.title}\n`;
