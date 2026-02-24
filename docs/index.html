@@ -574,14 +574,11 @@ function renderItemList(items) {
 // 장바구니
 // ──────────────────────────────
 
-// id로 item 조회 후 토글 (HTML 인라인 onclick에서 id만 전달)
-function toggleCartById(id) {
-  const item = itemMap[id];
+// domId로 item 조회 후 토글 (HTML 인라인 onclick에서 domId만 전달)
+function toggleCartById(domId) {
+  const item = itemMap[domId];
   if (!item) return;
-  toggleCart(item);
-}
 
-function toggleCart(item) {
   const idx = cart.findIndex(c => c.id === item.id);
   if (idx >= 0) {
     cart.splice(idx, 1);
@@ -592,7 +589,14 @@ function toggleCart(item) {
     }
     cart.push(item);
   }
-  updateCardState(item.id);
+
+  // DOM 직접 업데이트 (domId를 이미 알고 있으므로 역탐색 불필요)
+  const inCart = cart.some(c => c.id === item.id);
+  const card = document.getElementById(`card-${domId}`);
+  const chk  = card?.querySelector('input[type=checkbox]');
+  if (card) card.classList.toggle('selected', inCart);
+  if (chk)  chk.checked = inCart;
+
   renderCart();
 }
 
@@ -608,7 +612,17 @@ function removeFromCartByIdx(idx) {
   if (idx < 0 || idx >= cart.length) return;
   const item = cart[idx];
   cart.splice(idx, 1);
-  updateCardState(item.id);
+
+  // itemMap에서 domId 역탐색 후 DOM 직접 업데이트
+  const entry = Object.entries(itemMap).find(([, v]) => v.id === item.id);
+  if (entry) {
+    const [domId] = entry;
+    const card = document.getElementById(`card-${domId}`);
+    const chk  = card?.querySelector('input[type=checkbox]');
+    if (card) card.classList.remove('selected');
+    if (chk)  chk.checked = false;
+  }
+
   renderCart();
 }
 
