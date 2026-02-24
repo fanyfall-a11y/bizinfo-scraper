@@ -131,9 +131,18 @@ function getRegionCategory(title) {
 
 function processItems(rawItems, sourceId, db, today) {
   const results = [];
+  const seenTitles = new Set(); // 제목 기준 중복 제거
+
   for (const item of rawItems) {
     const id = `${sourceId}_${extractId(item.url)}`;
     if (db[id]) continue; // 이미 수집된 공고 스킵
+
+    // 제목 정규화 (공백/특수문자 제거 후 비교)
+    const cleanTitle = item.title.replace(/^\[[가-힣A-Za-z0-9\s]+\]\s*/, '').trim();
+    const normalizedTitle = cleanTitle.replace(/\s+/g, ' ').trim();
+    if (seenTitles.has(normalizedTitle)) continue; // 같은 제목 중복 스킵
+    seenTitles.add(normalizedTitle);
+
     results.push({
       id,
       source: sourceId,
@@ -143,7 +152,7 @@ function processItems(rawItems, sourceId, db, today) {
       region: item.region || '전국',
       regionCategory: getRegionCategory(item.title),
       category: getCategory(item.title),
-      cleanTitle: item.title.replace(/^\[[가-힣A-Za-z0-9\s]+\]\s*/, '').trim(),
+      cleanTitle,
       isTarget: isTargetAudience(item.title),
     });
   }

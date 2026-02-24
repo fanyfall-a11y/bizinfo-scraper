@@ -501,7 +501,17 @@ function getCurrentItems() {
 
   let items = [];
   if (currentSource === 'all') {
-    Object.values(data.sources || {}).forEach(s => { items = items.concat(s.items || []); });
+    // 전체 탭: 사이트 간 제목 중복 제거
+    const seenTitles = new Set();
+    Object.values(data.sources || {}).forEach(s => {
+      (s.items || []).forEach(item => {
+        const key = (item.cleanTitle || item.title || '').replace(/\s+/g, ' ').trim();
+        if (!seenTitles.has(key)) {
+          seenTitles.add(key);
+          items.push(item);
+        }
+      });
+    });
   } else {
     items = data.sources?.[currentSource]?.items || [];
   }
