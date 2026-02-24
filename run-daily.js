@@ -941,8 +941,8 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
 
     // 1. 새 공고 수집
-    const newItems = await getNewItems(page, 1); // 테스트: 1페이지만
-    const limitedItems = newItems.slice(0, 1); // 테스트: 1개만 처리
+    const newItems = await getNewItems(page, 15); // 운영: 최대 15페이지
+    const limitedItems = newItems; // 운영: 전체 처리
 
     if (newItems.length === 0) {
       log('신규 공고 없음. 메일 발송 생략.');
