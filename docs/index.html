@@ -357,10 +357,11 @@ async function init() {
 }
 
 async function loadAllData() {
+  // KST 기준 날짜 생성 (collect.js와 동일하게 UTC+9 오프셋 적용)
+  const KST_OFFSET = 9 * 60 * 60 * 1000;
   const dates = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
+    const d = new Date(Date.now() + KST_OFFSET - i * 86400 * 1000);
     dates.push(d.toISOString().slice(0, 10));
   }
 

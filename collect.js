@@ -148,19 +148,21 @@ function getRegionCategory(title) {
   return '전국';
 }
 
-function processItems(rawItems, sourceId, db, today) {
+function processItems(rawItems, sourceId, db) {
   const results = [];
   const seenTitles = new Set(); // 제목 기준 중복 제거
 
   for (const item of rawItems) {
     const id = `${sourceId}_${extractId(item.url)}`;
-    if (db[id]) continue; // 이미 수집된 공고 스킵
 
     // 제목 정규화 (공백/특수문자 제거 후 비교)
     const cleanTitle = item.title.replace(/^\[[가-힣A-Za-z0-9\s]+\]\s*/, '').trim();
     const normalizedTitle = cleanTitle.replace(/\s+/g, ' ').trim();
     if (seenTitles.has(normalizedTitle)) continue; // 같은 제목 중복 스킵
     seenTitles.add(normalizedTitle);
+
+    // isNew: collected_ids에 없으면 신규 (이메일 발송 기준으로만 사용)
+    const isNew = !db[id];
 
     results.push({
       id,
@@ -173,6 +175,7 @@ function processItems(rawItems, sourceId, db, today) {
       category: getCategory(item.title),
       cleanTitle,
       isTarget: isTargetAudience(item.title),
+      isNew,
     });
   }
   return results;
@@ -455,7 +458,9 @@ function cleanOldDailyFiles() {
 
 async function main() {
   log('=== 공고 목록 수집 시작 ===');
-  const today = new Date().toISOString().slice(0, 10);
+  // KST 기준 오늘 날짜 (UTC+9) — Actions가 UTC 17:00에 실행되면 KST 02:00 다음날
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  log(`📅 KST 기준 오늘: ${today}`);
   const db = loadDB();
 
   const browser = await puppeteer.launch({
@@ -465,7 +470,8 @@ async function main() {
 
   // 출처별 수집 결과
   const sourceResults = {};
-  let totalNew = 0;
+  let totalCount = 0;  // 전체 수집 건수 (신규/기존 모두)
+  let totalNew   = 0;  // 신규 건수 (이메일 발송 기준)
 
   try {
     const page = await browser.newPage();
@@ -473,27 +479,31 @@ async function main() {
 
     // 1. 기업마당
     const bizinfoRaw = await collectBizinfo(page, db);
-    const bizinfoItems = processItems(bizinfoRaw, 'bizinfo', db, today);
+    const bizinfoItems = processItems(bizinfoRaw, 'bizinfo', db);
     sourceResults.bizinfo = bizinfoItems;
-    totalNew += bizinfoItems.length;
+    totalCount += bizinfoItems.length;
+    totalNew   += bizinfoItems.filter(i => i.isNew).length;
 
     // 2. K-Startup
     const kstartupRaw = await collectKStartup(page, db);
-    const kstartupItems = processItems(kstartupRaw, 'kstartup', db, today);
+    const kstartupItems = processItems(kstartupRaw, 'kstartup', db);
     sourceResults.kstartup = kstartupItems;
-    totalNew += kstartupItems.length;
+    totalCount += kstartupItems.length;
+    totalNew   += kstartupItems.filter(i => i.isNew).length;
 
     // 3. 소상공인마당
     const sbizRaw = await collectSbiz(page, db);
-    const sbizItems = processItems(sbizRaw, 'sbiz', db, today);
+    const sbizItems = processItems(sbizRaw, 'sbiz', db);
     sourceResults.sbiz = sbizItems;
-    totalNew += sbizItems.length;
+    totalCount += sbizItems.length;
+    totalNew   += sbizItems.filter(i => i.isNew).length;
 
     // 4. 중소기업기술
     const smtechRaw = await collectSmtech(page, db);
-    const smtechItems = processItems(smtechRaw, 'smtech', db, today);
+    const smtechItems = processItems(smtechRaw, 'smtech', db);
     sourceResults.smtech = smtechItems;
-    totalNew += smtechItems.length;
+    totalCount += smtechItems.length;
+    totalNew   += smtechItems.filter(i => i.isNew).length;
 
   } catch (err) {
     log(`수집 오류: ${err.message}`);
@@ -506,15 +516,17 @@ async function main() {
   let totalTarget = 0;
   Object.entries(sourceResults).forEach(([src, items]) => {
     const targets = items.filter(i => i.isTarget).length;
+    const newCnt  = items.filter(i => i.isNew).length;
     totalTarget += targets;
-    log(`  ${SOURCES[src].icon} ${SOURCES[src].name}: ${items.length}건 (추천 ${targets}건)`);
+    log(`  ${SOURCES[src].icon} ${SOURCES[src].name}: ${items.length}건 (신규 ${newCnt}건, 추천 ${targets}건)`);
   });
-  log(`  📌 전체: ${totalNew}건 (추천 ${totalTarget}건)`);
+  log(`  📌 전체: ${totalCount}건 (신규 ${totalNew}건, 추천 ${totalTarget}건)`);
 
-  // 저장 데이터 구성
+  // 저장 데이터 구성 (전체 공고 저장 — 신규 여부 무관)
   const saveData = {
     date: today,
-    total: totalNew,
+    total: totalCount,
+    newCount: totalNew,
     targetCount: totalTarget,
     sources: Object.fromEntries(
       Object.entries(sourceResults).map(([src, items]) => [
@@ -522,6 +534,7 @@ async function main() {
         {
           ...SOURCES[src],
           count: items.length,
+          newCount: items.filter(i => i.isNew).length,
           targetCount: items.filter(i => i.isTarget).length,
           items,
         }
@@ -540,10 +553,10 @@ async function main() {
   // 8일 이전 파일 삭제
   cleanOldDailyFiles();
 
-  // collected_ids 업데이트
-  Object.values(sourceResults).flat().forEach(item => {
-    db[item.id] = today;
-  });
+  // collected_ids 업데이트 (신규 항목만 등록)
+  Object.values(sourceResults).flat()
+    .filter(item => item.isNew)
+    .forEach(item => { db[item.id] = today; });
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
 
   if (totalNew === 0) {
@@ -562,18 +575,20 @@ async function main() {
     const TO_EMAIL = process.env.TO_EMAIL || 'nagairams1@gmail.com';
     const pageUrl = 'https://fanyfall-a11y.github.io/bizinfo-scraper/';
 
-    let emailBody = `📋 오늘 신규 지원사업 공고 ${totalNew}건 수집 완료!\n`;
-    emailBody += `🎯 추천 공고 ${totalTarget}건\n\n`;
+    let emailBody = `📋 오늘 신규 지원사업 공고 ${totalNew}건!\n`;
+    emailBody += `(전체 수집: ${totalCount}건, 추천 신규: ${Object.values(sourceResults).flat().filter(i=>i.isNew&&i.isTarget).length}건)\n\n`;
     emailBody += `👉 공고 선택 페이지:\n${pageUrl}\n\n`;
     emailBody += `${'='.repeat(50)}\n\n`;
 
     Object.entries(sourceResults).forEach(([src, items]) => {
-      if (items.length === 0) return;
+      // 이메일에는 신규 항목만 포함
+      const newItems = items.filter(i => i.isNew);
+      if (newItems.length === 0) return;
       const source = SOURCES[src];
-      const targets = items.filter(i => i.isTarget);
-      const others = items.filter(i => !i.isTarget);
+      const targets = newItems.filter(i => i.isTarget);
+      const others  = newItems.filter(i => !i.isTarget);
 
-      emailBody += `${source.icon} ${source.name} - ${items.length}건\n`;
+      emailBody += `${source.icon} ${source.name} - 신규 ${newItems.length}건\n`;
       emailBody += `${'='.repeat(50)}\n\n`;
 
       targets.forEach(item => {
