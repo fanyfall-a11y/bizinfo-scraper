@@ -186,7 +186,7 @@ function processItems(rawItems, sourceId, db) {
 // =====================================================
 
 // 1. 기업마당
-async function collectBizinfo(page, db) {
+async function collectBizinfo(page) {
   log('📡 [기업마당] 수집 시작...');
   const BASE_URL = SOURCES.bizinfo.url;
   const rawItems = [];
@@ -212,16 +212,8 @@ async function collectBizinfo(page, db) {
 
       if (items.length === 0) break;
 
-      let newCount = 0;
-      for (const item of items) {
-        const id = `bizinfo_${extractId(item.url)}`;
-        if (db[id]) { break; }
-        rawItems.push(item);
-        newCount++;
-      }
-
-      log(`  [기업마당] 페이지 ${currentPage}: ${newCount}개 신규`);
-      if (newCount === 0) break;
+      rawItems.push(...items);
+      log(`  [기업마당] 페이지 ${currentPage}: ${items.length}개`);
 
       const hasNext = await page.evaluate(cp => {
         const links = Array.from(document.querySelectorAll('.page_wrap a'));
@@ -239,7 +231,7 @@ async function collectBizinfo(page, db) {
 }
 
 // 2. K-Startup - 실제 구조: board_list-wrap > ul > li, a[href*=go_view], p.tit, p.date
-async function collectKStartup(page, db) {
+async function collectKStartup(page) {
   log('📡 [K-Startup] 수집 시작...');
   const BASE_URL = SOURCES.kstartup.url;
   const rawItems = [];
@@ -282,16 +274,8 @@ async function collectKStartup(page, db) {
 
       if (items.length === 0) break;
 
-      let newCount = 0;
-      for (const item of items) {
-        const id = `kstartup_${extractId(item.url)}`;
-        if (db[id]) { break; }
-        rawItems.push(item);
-        newCount++;
-      }
-
-      log(`  [K-Startup] 페이지 ${currentPage}: ${newCount}개 신규`);
-      if (newCount === 0) break;
+      rawItems.push(...items);
+      log(`  [K-Startup] 페이지 ${currentPage}: ${items.length}개`);
 
       const hasNext = await page.evaluate(cp => {
         const links = Array.from(document.querySelectorAll('.pagination a, .paging a, .page_btn'));
@@ -309,7 +293,7 @@ async function collectKStartup(page, db) {
 }
 
 // 3. 소상공인진흥공단 - 실제 구조: table tbody tr, a.board_title or a
-async function collectSbiz(page, db) {
+async function collectSbiz(page) {
   log('📡 [소상공인진흥공단] 수집 시작...');
   const BASE_URL = SOURCES.sbiz.url;
   const rawItems = [];
@@ -353,16 +337,8 @@ async function collectSbiz(page, db) {
 
       if (items.length === 0) break;
 
-      let newCount = 0;
-      for (const item of items) {
-        const id = `sbiz_${extractId(item.url)}`;
-        if (db[id]) { break; }
-        rawItems.push(item);
-        newCount++;
-      }
-
-      log(`  [소상공인진흥공단] 페이지 ${currentPage}: ${newCount}개 신규`);
-      if (newCount === 0) break;
+      rawItems.push(...items);
+      log(`  [소상공인진흥공단] 페이지 ${currentPage}: ${items.length}개`);
 
       const hasNext = await page.evaluate(cp => {
         const links = Array.from(document.querySelectorAll('.paging a, .pagination a, .board_paging a'));
@@ -380,7 +356,7 @@ async function collectSbiz(page, db) {
 }
 
 // 4. 중소기업기술(smtech) - 실제 구조: table tbody tr, a.board, td.ac (날짜)
-async function collectSmtech(page, db) {
+async function collectSmtech(page) {
   log('📡 [중소기업기술] 수집 시작...');
   const BASE_URL = SOURCES.smtech.url;
   const rawItems = [];
@@ -414,16 +390,8 @@ async function collectSmtech(page, db) {
 
       if (items.length === 0) break;
 
-      let newCount = 0;
-      for (const item of items) {
-        const id = `smtech_${extractId(item.url)}`;
-        if (db[id]) { break; }
-        rawItems.push(item);
-        newCount++;
-      }
-
-      log(`  [중소기업기술] 페이지 ${currentPage}: ${newCount}개 신규`);
-      if (newCount === 0) break;
+      rawItems.push(...items);
+      log(`  [중소기업기술] 페이지 ${currentPage}: ${items.length}개`);
 
       const hasNext = await page.evaluate(cp => {
         const links = Array.from(document.querySelectorAll('.paging a, .pagination a'));
@@ -478,28 +446,28 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     // 1. 기업마당
-    const bizinfoRaw = await collectBizinfo(page, db);
+    const bizinfoRaw = await collectBizinfo(page);
     const bizinfoItems = processItems(bizinfoRaw, 'bizinfo', db);
     sourceResults.bizinfo = bizinfoItems;
     totalCount += bizinfoItems.length;
     totalNew   += bizinfoItems.filter(i => i.isNew).length;
 
     // 2. K-Startup
-    const kstartupRaw = await collectKStartup(page, db);
+    const kstartupRaw = await collectKStartup(page);
     const kstartupItems = processItems(kstartupRaw, 'kstartup', db);
     sourceResults.kstartup = kstartupItems;
     totalCount += kstartupItems.length;
     totalNew   += kstartupItems.filter(i => i.isNew).length;
 
     // 3. 소상공인마당
-    const sbizRaw = await collectSbiz(page, db);
+    const sbizRaw = await collectSbiz(page);
     const sbizItems = processItems(sbizRaw, 'sbiz', db);
     sourceResults.sbiz = sbizItems;
     totalCount += sbizItems.length;
     totalNew   += sbizItems.filter(i => i.isNew).length;
 
     // 4. 중소기업기술
-    const smtechRaw = await collectSmtech(page, db);
+    const smtechRaw = await collectSmtech(page);
     const smtechItems = processItems(smtechRaw, 'smtech', db);
     sourceResults.smtech = smtechItems;
     totalCount += smtechItems.length;
