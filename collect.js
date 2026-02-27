@@ -6,6 +6,7 @@ const path = require('path');
 const DB_FILE = path.join(__dirname, 'collected_ids.json');
 const TODAY_LIST_FILE = path.join(__dirname, 'docs', 'today-list.json');
 const DAILY_DIR = path.join(__dirname, 'docs', 'daily');
+const DETAIL_CACHE_FILE = path.join(__dirname, 'docs', 'detail-cache.json');
 
 // =====================================================
 // 수집 사이트 설정
@@ -53,6 +54,17 @@ function loadDB() {
   return {};
 }
 
+function loadDetailCache() {
+  if (fs.existsSync(DETAIL_CACHE_FILE)) {
+    try { return JSON.parse(fs.readFileSync(DETAIL_CACHE_FILE, 'utf8')); } catch { return {}; }
+  }
+  return {};
+}
+
+function saveDetailCache(cache) {
+  fs.writeFileSync(DETAIL_CACHE_FILE, JSON.stringify(cache), 'utf8');
+}
+
 function extractId(url) {
   // 다양한 ID 패턴 추출
   const patterns = [
@@ -88,6 +100,181 @@ function resolveSemasUrl(rawUrl, baseUrl) {
     return `https://www.semas.or.kr/web/board/webBoardView.kmdc?bbs_cd_n=2&seq=${m[1]}`;
   }
   return rawUrl;
+}
+
+// =====================================================
+// 상세 페이지 크롤링 (지원내용/지원자격/신청기간 추출)
+// =====================================================
+async function fetchItemDetail(page, url) {
+  try {
+    if (!url || url.startsWith('javascript:') || !url.startsWith('http')) return {};
+    // semas.or.kr는 JS 렌더링 → networkidle2 + 긴 대기
+    const isSemas = url.includes('semas.or.kr');
+    await page.goto(url, {
+      waitUntil: isSemas ? 'networkidle2' : 'domcontentloaded',
+      timeout: 25000
+    });
+    // 콘텐츠 렌더링 대기 (JS 앱은 더 오래 기다림)
+    await new Promise(r => setTimeout(r, isSemas ? 2000 : 600));
+    // semas: table/th 요소가 나타날 때까지 추가 대기
+    if (isSemas) {
+      try { await page.waitForSelector('th, table td', { timeout: 5000 }); } catch {}
+    }
+
+    const detail = await page.evaluate(() => {
+      const FIELDS = {
+        eligibility: ['지원대상', '지원 대상', '신청자격', '신청 자격', '참여대상', '참여 대상',
+                      '지원자격', '지원 자격', '접수자격', '대상기업', '지원대상기업'],
+        content:     ['지원내용', '지원 내용', '사업내용', '사업 내용', '지원사항', '지원 사항',
+                      '지원 항목', '내용', '공고내용', '사업개요'],
+        period:      ['신청기간', '신청 기간', '접수기간', '접수 기간', '모집기간', '모집 기간',
+                      '공모기간', '사업기간', '사업 기간', '신청일정', '공고기간'],
+        amount:      ['지원규모', '지원 규모', '지원금액', '지원 금액', '지원한도', '지원내역'],
+      };
+
+      function cleanText(t) {
+        return (t || '').replace(/\s{2,}/g, ' ').replace(/\n+/g, ' ').trim().slice(0, 300);
+      }
+
+      function getThTdValue(keyClean) {
+        for (const th of document.querySelectorAll('th')) {
+          if (th.innerText.replace(/\s/g, '').includes(keyClean)) {
+            // th 바로 뒤 td 탐색 (4열 구조: th-td-th-td 지원)
+            let sib = th.nextElementSibling;
+            while (sib && sib.tagName === 'TH') sib = sib.nextElementSibling;
+            if (sib && sib.tagName === 'TD') {
+              const t = cleanText(sib.innerText);
+              if (t.length > 2) return t;
+            }
+            // 폴백: tr 안의 첫 td, 또는 다음 tr의 첫 td
+            const tr = th.closest('tr');
+            if (!tr) continue;
+            const td = tr.querySelector('td') || tr.nextElementSibling?.querySelector('td');
+            if (td) {
+              const t = cleanText(td.innerText);
+              if (t.length > 2) return t;
+            }
+          }
+        }
+        return '';
+      }
+
+      function extractValue(keys) {
+        for (const key of keys) {
+          const kc = key.replace(/\s/g, '');
+
+          // 패턴 1: th-td
+          const v1 = getThTdValue(kc);
+          if (v1) return v1;
+
+          // 패턴 2: td-td (2열 테이블: 첫 td가 label, 두 번째 td가 value)
+          for (const tr of document.querySelectorAll('tr')) {
+            const tds = tr.querySelectorAll('td');
+            if (tds.length >= 2) {
+              const label = tds[0].innerText.replace(/\s/g, '');
+              if (label.includes(kc)) {
+                const t = cleanText(tds[1].innerText);
+                if (t.length > 2) return t;
+              }
+              // 4열 구조: td0=label1 td1=val1 td2=label2 td3=val2
+              if (tds.length === 4 && tds[2].innerText.replace(/\s/g, '').includes(kc)) {
+                const t = cleanText(tds[3].innerText);
+                if (t.length > 2) return t;
+              }
+            }
+          }
+
+          // 패턴 3: dt-dd
+          for (const dt of document.querySelectorAll('dt')) {
+            if (dt.innerText.replace(/\s/g, '').includes(kc)) {
+              const dd = dt.nextElementSibling;
+              if (dd && dd.tagName === 'DD') {
+                const t = cleanText(dd.innerText);
+                if (t.length > 2) return t;
+              }
+            }
+          }
+
+          // 패턴 4: class에 label/tit 포함 → 다음 형제 요소
+          for (const el of document.querySelectorAll('[class*=label],[class*=tit],[class*=title],[class*=head]')) {
+            if (el.innerText.replace(/\s/g, '').includes(kc)) {
+              const sib = el.nextElementSibling;
+              if (sib) {
+                const t = cleanText(sib.innerText);
+                if (t.length > 2 && t.length < 500) return t;
+              }
+            }
+          }
+        }
+        return '';
+      }
+
+      const result = {};
+      for (const [field, keys] of Object.entries(FIELDS)) {
+        const val = extractValue(keys);
+        if (val) result[field] = val;
+      }
+
+      // smtech 전용: 시작일자 + 종료일자 조합 → period
+      if (!result.period) {
+        const startVal = getThTdValue('시작일자') || getThTdValue('사업시작일');
+        const endVal   = getThTdValue('종료일자') || getThTdValue('사업종료일') || getThTdValue('마감일자');
+        if (endVal) {
+          result.period = startVal ? `${startVal.trim()} ~ ${endVal.trim()}` : endVal.trim();
+        }
+      }
+
+      // smtech 전용: "내용" th → content
+      if (!result.content) {
+        const v = getThTdValue('내용');
+        if (v) result.content = v;
+      }
+
+      // 폴백: period가 없으면 전체 텍스트에서 날짜범위 패턴 탐색
+      if (!result.period) {
+        const bodyText = document.body.innerText || '';
+        // 날짜범위 패턴: YYYY.MM.DD ~ YYYY.MM.DD 또는 YYYY-MM-DD ~ YYYY-MM-DD
+        const rangeMatch = bodyText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2})\s*[~～]\s*(\d{4}[.\-]\d{2}[.\-]\d{2})/);
+        if (rangeMatch) {
+          result.period = `${rangeMatch[1]} ~ ${rangeMatch[2]}`;
+        }
+      }
+
+      // 폴백: content가 없으면 메인 본문 div에서 추출
+      if (!result.content) {
+        const contentEl = document.querySelector(
+          '.view_content, .board_content, .view_body, .bbs_content, .view_cont, ' +
+          '.detail_content, .content_area, #content_area, .board_view td.content'
+        );
+        if (contentEl) {
+          result.content = cleanText(contentEl.innerText);
+        }
+      }
+
+      return result;
+    });
+
+    return detail;
+  } catch {
+    return {};
+  }
+}
+
+// 신청기간 문자열에서 마감일(종료일) 추출
+// 예: "2026.02.25 ~ 2026.03.24" → "2026-03-24"
+// 예: "2026.03.24" → "2026-03-24"
+function extractDeadlineFromPeriod(period) {
+  if (!period) return '';
+  // 날짜 패턴: YYYY.MM.DD 또는 YYYY-MM-DD 또는 YYYY년 MM월 DD일
+  const datePattern = /(\d{4})[.\-년]\s*(\d{1,2})[.\-월]\s*(\d{1,2})/g;
+  const matches = [...period.matchAll(datePattern)];
+  if (matches.length === 0) return '';
+  // 두 날짜가 있으면 두 번째(종료일), 하나면 그것을 마감일로
+  const last = matches[matches.length - 1];
+  const y = last[1];
+  const m = last[2].padStart(2, '0');
+  const d = last[3].padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function isTargetAudience(title) {
@@ -472,6 +659,43 @@ async function main() {
     sourceResults.smtech = smtechItems;
     totalCount += smtechItems.length;
     totalNew   += smtechItems.filter(i => i.isNew).length;
+
+    // ── 상세 정보 수집 (신청기간→마감일 수정 + 툴팁용 detail) ──
+    const detailCache = loadDetailCache();
+    const allItems = Object.values(sourceResults).flat();
+    const needDetail = allItems.filter(item => !detailCache[item.id]);
+    log(`\n🔍 상세 정보 수집: ${needDetail.length}건 신규 (캐시 ${allItems.length - needDetail.length}건 재사용)`);
+
+    for (let i = 0; i < needDetail.length; i++) {
+      const item = needDetail[i];
+      if (i > 0 && i % 20 === 0) log(`  진행: ${i}/${needDetail.length}`);
+      const detail = await fetchItemDetail(page, item.url);
+      detailCache[item.id] = detail;
+      await new Promise(r => setTimeout(r, 350));
+    }
+
+    // 잘못된 detail 값 정리 용 상수
+    const JUNK_VALUES = new Set(['구 분', '구분', '-', '·', '해당없음', '없음', '']);
+
+    // 캐시 적용 + 신청기간으로 마감일 수정
+    allItems.forEach(item => {
+      const d = detailCache[item.id] || {};
+
+      // 잘못 추출된 단순 헤더 텍스트 제거
+      const cleaned = {};
+      for (const [k, v] of Object.entries(d)) {
+        if (v && !JUNK_VALUES.has(v.trim()) && v.trim().length > 3) cleaned[k] = v;
+      }
+      item.detail = cleaned;
+
+      // 마감일 결정: detail.period → 리스트 날짜범위 → 원본 유지
+      const deadline = extractDeadlineFromPeriod(cleaned.period) ||
+                       (item.date && item.date.includes('~') ? extractDeadlineFromPeriod(item.date) : '');
+      if (deadline) item.date = deadline;
+    });
+
+    saveDetailCache(detailCache);
+    log(`✅ 상세 정보 캐시 저장 완료 (총 ${Object.keys(detailCache).length}건)`);
 
   } catch (err) {
     log(`수집 오류: ${err.message}`);

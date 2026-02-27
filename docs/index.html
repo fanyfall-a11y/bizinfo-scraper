@@ -220,6 +220,58 @@
       .cart-panel { display: none; }
       .list-panel { padding-bottom: 160px; }
     }
+
+    /* ── 상세 툴팁 ── */
+    #detail-tooltip {
+      position: fixed;
+      background: white;
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      width: 290px;
+      z-index: 400;
+      border: 1.5px solid #c0d0f0;
+      pointer-events: auto;
+      display: none;
+      font-size: 13px;
+      line-height: 1.6;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #detail-tooltip::-webkit-scrollbar { width: 4px; }
+    #detail-tooltip::-webkit-scrollbar-thumb { background: #c0d0f0; border-radius: 4px; }
+    .tooltip-title {
+      font-size: 13px; font-weight: 700; color: #1a2a4a;
+      margin-bottom: 10px; line-height: 1.45;
+      padding-bottom: 10px; border-bottom: 1px solid #eef1f8;
+    }
+    .tooltip-meta-row {
+      display: flex; align-items: center; gap: 7px; margin-bottom: 6px;
+    }
+    .tooltip-meta-label {
+      font-size: 11px; font-weight: 700; color: white;
+      background: #1a4fa0; padding: 2px 7px; border-radius: 8px;
+      flex-shrink: 0; min-width: 36px; text-align: center;
+    }
+    .tooltip-meta-value { color: #444; font-size: 12px; }
+    .tooltip-section { margin-top: 10px; }
+    .tooltip-section-label {
+      font-size: 11px; font-weight: 700; color: #1a4fa0;
+      margin-bottom: 4px; display: flex; align-items: center; gap: 4px;
+    }
+    .tooltip-section-value {
+      color: #555; font-size: 12px; background: #f7f9ff;
+      padding: 8px 10px; border-radius: 8px; border: 1px solid #e0e8f8;
+      line-height: 1.65; white-space: pre-line;
+    }
+    .tooltip-no-detail { font-size: 11px; color: #bbb; margin-top: 8px; font-style: italic; }
+    .tooltip-link {
+      display: block; margin-top: 12px; padding: 9px 12px;
+      background: #1a4fa0; color: white; text-decoration: none;
+      border-radius: 9px; text-align: center; font-size: 12px; font-weight: 700;
+      transition: background 0.15s;
+    }
+    .tooltip-link:hover { background: #0d2d6e; }
   </style>
 </head>
 <body>
@@ -297,6 +349,9 @@
     </div>
   </div>
 </div>
+
+<!-- 상세 툴팁 -->
+<div id="detail-tooltip" onmouseenter="keepTooltip()" onmouseleave="hideTooltip()"></div>
 
 <!-- 모달 -->
 <div id="modal">
@@ -555,7 +610,8 @@ function renderItemList(items) {
     const domId = 'item_' + idx;
     return `
     <div class="item-card${item.isTarget?' is-target':''}${inCart?' selected':''}"
-         id="card-${domId}" onclick="toggleCartById('${domId}')">
+         id="card-${domId}" onclick="toggleCartById('${domId}')"
+         onmouseenter="showTooltip('${domId}', this)" onmouseleave="hideTooltip()">
       <input type="checkbox" ${inCart?'checked':''} onclick="event.stopPropagation();toggleCartById('${domId}')">
       <div class="item-body">
         <div class="badge-row">
@@ -668,6 +724,82 @@ function renderCart() {
       <div class="cart-item-source">${src.icon||''} ${src.name||item.source} · 마감 ${item.date||'-'}</div>
     </div>`;
   }).join('');
+}
+
+// ──────────────────────────────
+// 상세 툴팁
+// ──────────────────────────────
+let _tooltipShowTimer = null;
+let _tooltipHideTimer = null;
+
+function showTooltip(domId, cardEl) {
+  clearTimeout(_tooltipShowTimer);
+  clearTimeout(_tooltipHideTimer);
+
+  _tooltipShowTimer = setTimeout(() => {
+    const item = itemMap[domId];
+    if (!item) return;
+    const src = SOURCE_INFO[item.source] || {};
+    const d = item.detail || {};
+
+    let html = `<div class="tooltip-title">${item.cleanTitle || item.title}</div>`;
+
+    html += `<div class="tooltip-meta-row"><span class="tooltip-meta-label">출처</span><span class="tooltip-meta-value">${src.icon || ''} ${src.name || item.source}</span></div>`;
+    html += `<div class="tooltip-meta-row"><span class="tooltip-meta-label">분야</span><span class="tooltip-meta-value">📂 ${item.category || '사업화'}</span></div>`;
+    html += `<div class="tooltip-meta-row"><span class="tooltip-meta-label">지역</span><span class="tooltip-meta-value">📍 ${item.regionCategory || '전국'}</span></div>`;
+    html += `<div class="tooltip-meta-row"><span class="tooltip-meta-label">마감</span><span class="tooltip-meta-value">📅 ${item.date || '-'}</span></div>`;
+
+    if (d.period) {
+      html += `<div class="tooltip-section"><div class="tooltip-section-label">📆 모집기간</div><div class="tooltip-section-value">${d.period}</div></div>`;
+    }
+    if (d.eligibility) {
+      html += `<div class="tooltip-section"><div class="tooltip-section-label">👤 지원자격</div><div class="tooltip-section-value">${d.eligibility}</div></div>`;
+    }
+    if (d.content) {
+      html += `<div class="tooltip-section"><div class="tooltip-section-label">💰 지원내용</div><div class="tooltip-section-value">${d.content}</div></div>`;
+    }
+    if (d.amount) {
+      html += `<div class="tooltip-section"><div class="tooltip-section-label">💵 지원규모</div><div class="tooltip-section-value">${d.amount}</div></div>`;
+    }
+    if (!d.period && !d.eligibility && !d.content) {
+      html += `<div class="tooltip-no-detail">📌 다음 수집부터 상세 정보가 표시됩니다</div>`;
+    }
+
+    html += `<a href="${item.url}" target="_blank" class="tooltip-link" onclick="event.stopPropagation()">공고 바로가기 →</a>`;
+
+    const tooltip = document.getElementById('detail-tooltip');
+    tooltip.innerHTML = html;
+
+    // 위치 계산 (카드 오른쪽 → 오른쪽 공간 부족 시 왼쪽)
+    const rect = cardEl.getBoundingClientRect();
+    const tipW = 290;
+    const vpW = window.innerWidth;
+    const vpH = window.innerHeight;
+
+    let left = rect.right + 12;
+    if (left + tipW > vpW - 10) left = rect.left - tipW - 12;
+    if (left < 8) left = 8;
+
+    let top = rect.top;
+    const maxH = Math.min(tooltip.scrollHeight, vpH * 0.8);
+    if (top + maxH > vpH - 10) top = vpH - maxH - 10;
+    if (top < 8) top = 8;
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top  = top + 'px';
+    tooltip.style.display = 'block';
+  }, 280);
+}
+
+function hideTooltip() {
+  clearTimeout(_tooltipShowTimer);
+  _tooltipHideTimer = setTimeout(() => {
+    document.getElementById('detail-tooltip').style.display = 'none';
+  }, 180);
+}
+
+function keepTooltip() {
+  clearTimeout(_tooltipHideTimer);
 }
 
 // ──────────────────────────────
