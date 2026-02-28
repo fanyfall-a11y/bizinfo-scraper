@@ -9,6 +9,8 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: 코드 체크아웃

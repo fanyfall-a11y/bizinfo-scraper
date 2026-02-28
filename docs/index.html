@@ -215,6 +215,33 @@
       border: none; border-radius: 10px; font-size: 14px; cursor: pointer; display: none;
     }
 
+    /* 토큰 입력 모달 */
+    #token-modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      display: none; align-items: center; justify-content: center; z-index: 600;
+    }
+    #token-modal.show { display: flex; }
+    .token-modal-box {
+      background: white; border-radius: 20px; padding: 32px 28px;
+      width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .token-modal-box h3 { font-size: 16px; color: #1a2a4a; margin-bottom: 6px; }
+    .token-modal-box p  { font-size: 12px; color: #888; margin-bottom: 14px; line-height: 1.6; }
+    .token-modal-box input {
+      width: 100%; box-sizing: border-box;
+      border: 1.5px solid #c8d8f0; border-radius: 10px;
+      padding: 10px 12px; font-size: 13px; font-family: monospace;
+      outline: none; margin-bottom: 14px;
+    }
+    .token-modal-box input:focus { border-color: #1a4fa0; }
+    .token-modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+    .token-modal-btns button {
+      padding: 9px 20px; border: none; border-radius: 10px;
+      font-size: 13px; cursor: pointer;
+    }
+    .token-btn-cancel { background: #f0f0f0; color: #555; }
+    .token-btn-ok     { background: #1a4fa0; color: white; }
+
     /* 반응형 */
     @media (max-width: 700px) {
       .cart-panel { display: none; }
@@ -345,6 +372,9 @@
       <div class="cart-footer">
         <div class="cart-limit" id="cart-limit">최대 3개까지 선택 가능</div>
         <button class="generate-btn" id="gen-btn" onclick="startGenerate()">🚀 콘텐츠 생성</button>
+        <div style="text-align:center;margin-top:8px;">
+          <button id="token-reset-btn" onclick="resetToken()" style="display:none;background:none;border:none;font-size:11px;color:#bbb;cursor:pointer;text-decoration:underline;">토큰 초기화</button>
+        </div>
       </div>
     </div>
   </div>
@@ -352,6 +382,21 @@
 
 <!-- 상세 툴팁 -->
 <div id="detail-tooltip" onmouseenter="keepTooltip()" onmouseleave="hideTooltip()"></div>
+
+<!-- 토큰 입력 모달 -->
+<div id="token-modal">
+  <div class="token-modal-box">
+    <h3>🔑 GitHub Token 입력</h3>
+    <p>콘텐츠 생성을 위해 GitHub Personal Access Token이 필요해요.<br>
+       입력한 토큰은 이 기기의 브라우저에만 저장됩니다.<br>
+       <small style="color:#aaa">(Settings → Developer settings → Personal access tokens → Fine-grained tokens)</small></p>
+    <input type="password" id="token-input" placeholder="github_pat_..." onkeydown="if(event.key==='Enter')confirmToken()" />
+    <div class="token-modal-btns">
+      <button class="token-btn-cancel" onclick="closeTokenModal()">취소</button>
+      <button class="token-btn-ok"     onclick="confirmToken()">저장 후 실행</button>
+    </div>
+  </div>
+</div>
 
 <!-- 모달 -->
 <div id="modal">
@@ -407,6 +452,7 @@ function login() {
 // ──────────────────────────────
 async function init() {
   document.getElementById('header-date').textContent = new Date().toLocaleDateString('ko-KR');
+  if (loadToken()) document.getElementById('token-reset-btn').style.display = 'inline-block';
   renderFilters();
   await loadAllData();
 }
@@ -805,13 +851,46 @@ function keepTooltip() {
 // ──────────────────────────────
 // 콘텐츠 생성
 // ──────────────────────────────
+const TOKEN_KEY = 'gh_pat_bizinfo';
+
+function loadToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+function saveToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+function resetToken() {
+  localStorage.removeItem(TOKEN_KEY);
+  document.getElementById('token-reset-btn').style.display = 'none';
+  showModal('🗑️', '토큰 초기화 완료', '다음 콘텐츠 생성 시 토큰을 다시 입력해 주세요.', true);
+}
+
+function openTokenModal() {
+  const input = document.getElementById('token-input');
+  input.value = '';
+  document.getElementById('token-modal').classList.add('show');
+  setTimeout(() => input.focus(), 100);
+}
+function closeTokenModal() {
+  document.getElementById('token-modal').classList.remove('show');
+}
+function confirmToken() {
+  const t = document.getElementById('token-input').value.trim();
+  if (!t) return;
+  saveToken(t);
+  closeTokenModal();
+  document.getElementById('token-reset-btn').style.display = 'inline-block';
+  runGenerate(t);
+}
+
 async function startGenerate() {
   if (cart.length === 0) return;
+  const saved = loadToken();
+  if (saved) {
+    runGenerate(saved);
+  } else {
+    openTokenModal();
+  }
+}
 
+async function runGenerate(token) {
   const urls = cart.map(i => i.url).join(',');
-  const token = prompt('GitHub Personal Access Token을 입력해주세요:\n(Settings → Developer settings → Personal access tokens → Fine-grained tokens)');
-  if (!token) return;
-
   showModal('⏳', 'GitHub Actions 실행 중...', `${cart.length}건의 공고 콘텐츠를 생성하고 있어요.\n완료되면 이메일로 드라이브 링크가 전송됩니다.`);
 
   try {
@@ -830,7 +909,15 @@ async function startGenerate() {
         `${cart.length}건의 콘텐츠 생성이 시작됐어요.\n5~10분 후 이메일로 드라이브 링크가 전송됩니다.`, true);
     } else {
       const err = await res.json().catch(() => ({}));
-      showModal('❌', '오류 발생', `GitHub API 오류: ${err.message||res.status}`, true);
+      if (res.status === 401 || res.status === 403) {
+        // 토큰이 유효하지 않으면 저장된 것 삭제하고 다시 입력 받기
+        localStorage.removeItem(TOKEN_KEY);
+        document.getElementById('token-reset-btn').style.display = 'none';
+        closeModal();
+        showModal('❌', '토큰 오류', `토큰이 유효하지 않아요.\n저장된 토큰을 삭제했습니다.\n다시 시도해 주세요.`, true);
+      } else {
+        showModal('❌', '오류 발생', `GitHub API 오류: ${err.message||res.status}`, true);
+      }
     }
   } catch (e) {
     showModal('❌', '네트워크 오류', e.message, true);
